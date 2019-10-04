@@ -3,8 +3,14 @@
  * planner.c
  *
  *=================================================================*/
+#include <iostream>
 #include <math.h>
 #include "mex.h"
+#include <unordered_map>
+#include <vector>
+#include <iterator>
+
+using namespace std;
 
 /* Input Arguments */
 #define	MAP_IN      prhs[0]
@@ -206,6 +212,115 @@ int IsValidArmConfiguration(double* angles, int numofDOFs, double*	map,
     return 1;
 }
 
+//======================================================================================================================
+
+struct configuration{
+//    int n_dof;
+    vector<double> angles;
+
+    friend bool operator== (const configuration &c1, const configuration &c2);
+    friend bool operator!= (const configuration &c1, const configuration &c2);
+
+    configuration(vector<double> config_angles):
+    angles(config_angles){
+    }
+
+    void print_config()
+    {
+        for(size_t i=0;i<angles.size();i++)
+            cout<<angles[i]<<"\t";
+        cout<<endl;
+    }
+    //Write constructor for array based creation of config
+};
+
+bool operator== (const configuration &c1, const configuration &c2)
+{
+    return (c1.angles == c2.angles);
+}
+
+bool operator!= (const configuration &c1, const configuration &c2)
+{
+    return !(c1== c2);
+}
+
+//======================================================================================================================
+
+int interpolation_based_plan(   double*	map,
+                                const int &x_size,
+                                const int &y_size,
+                                const double* armstart_anglesV_rad,
+                                const double* armgoal_anglesV_rad,
+                                const int &numofDOFs,
+                                double*** plan)
+{
+    //for now just do straight interpolation between start and goal checking for the validity of samples
+
+    double distance = 0;
+    int i,j;
+    for (j = 0; j < numofDOFs; j++){
+        if(distance < fabs(armstart_anglesV_rad[j] - armgoal_anglesV_rad[j]))
+            distance = fabs(armstart_anglesV_rad[j] - armgoal_anglesV_rad[j]);
+    }
+    int numofsamples = (int)(distance/(PI/20));
+    if(numofsamples < 2){
+        printf("the arm is already at the goal\n");
+        return 0;
+    }
+    *plan = (double**) malloc(numofsamples*sizeof(double*));
+    int firstinvalidconf = 1;
+    for (i = 0; i < numofsamples; i++){
+        (*plan)[i] = (double*) malloc(numofDOFs*sizeof(double));
+        for(j = 0; j < numofDOFs; j++){
+            (*plan)[i][j] = armstart_anglesV_rad[j] + ((double)(i)/(numofsamples-1))*(armgoal_anglesV_rad[j] - armstart_anglesV_rad[j]);
+        }
+        if(!IsValidArmConfiguration((*plan)[i], numofDOFs, map, x_size, y_size) && firstinvalidconf)
+        {
+            firstinvalidconf = 1;
+            printf("ERROR: Invalid arm configuration!!!\n");
+        }
+    }
+    return numofsamples;
+}
+
+//======================================================================================================================
+
+int PRM_planner(double*	map,
+        const int &x_size,
+        const int &y_size,
+        double* armstart_anglesV_rad,
+        double* armgoal_anglesV_rad,
+        const int &numofDOFs,
+        double*** plan)
+{
+  /*
+   Use an unordered_map<configuration,pair<vector<configuration>,int>>. The int here would sort of represent the connected component
+   that configuration is a part of. The vector<configuration> is are the configuration which are it's edges. Graphs should be
+   represented as undirected. Intialise the neighbpurhood as 1 when making the graph initially, and then assign the same if a
+   neighbor is found else allot it a present_count+1 number of component.
+   Now this graph can be searched by BFS,DFS, Dijkstra
+   */
+  vector<double> start;
+    for (double *it = armstart_anglesV_rad; it != armstart_anglesV_rad + numofDOFs; ++it) {
+        start.push_back(*it);
+    }
+    vector<double> goal;
+    for (double *it = armgoal_anglesV_rad; it != armgoal_anglesV_rad + numofDOFs; ++it) {
+        goal.push_back(*it);
+    }
+  configuration c1{start};
+  c1.print_config();
+  configuration c2{goal};
+  c2.print_config();
+  if(c1!=c2)
+      cout<<"Hello";
+  if(c1==c1)
+     cout<<"Hi";
+  return 5;
+}
+
+//======================================================================================================================
+
 static void planner(
 		   double*	map,
 		   int x_size,
@@ -219,37 +334,15 @@ static void planner(
 	//no plan by default
 	*plan = NULL;
 	*planlength = 0;
-    
-    //for now just do straight interpolation between start and goal checking for the validity of samples
 
-    double distance = 0;
-    int i,j;
-    for (j = 0; j < numofDOFs; j++){
-        if(distance < fabs(armstart_anglesV_rad[j] - armgoal_anglesV_rad[j]))
-            distance = fabs(armstart_anglesV_rad[j] - armgoal_anglesV_rad[j]);
-    }
-    int numofsamples = (int)(distance/(PI/20));
-    if(numofsamples < 2){
-        printf("the arm is already at the goal\n");
-        return;
-    }
-    *plan = (double**) malloc(numofsamples*sizeof(double*));
-    int firstinvalidconf = 1;
-    for (i = 0; i < numofsamples; i++){
-        (*plan)[i] = (double*) malloc(numofDOFs*sizeof(double)); 
-        for(j = 0; j < numofDOFs; j++){
-            (*plan)[i][j] = armstart_anglesV_rad[j] + ((double)(i)/(numofsamples-1))*(armgoal_anglesV_rad[j] - armstart_anglesV_rad[j]);
-        }
-        if(!IsValidArmConfiguration((*plan)[i], numofDOFs, map, x_size, y_size) && firstinvalidconf)
-        {
-            firstinvalidconf = 1;
-            printf("ERROR: Invalid arm configuration!!!\n");
-        }
-    }    
-    *planlength = numofsamples;
+    auto numofsamples = PRM_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan);
+    auto num_samples = interpolation_based_plan(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan);
+    *planlength = num_samples;
     
     return;
 }
+
+//======================================================================================================================
 
 //prhs contains input parameters (3): 
 //1st is matrix with all the obstacles
