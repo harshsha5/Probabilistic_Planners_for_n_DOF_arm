@@ -9,6 +9,8 @@
 #include <unordered_map>
 #include <vector>
 #include <iterator>
+#include <random>
+//#include <boost/functional/hash.hpp>
 
 using namespace std;
 
@@ -224,6 +226,13 @@ struct configuration{
     configuration(vector<double> config_angles):
     angles(config_angles){
     }
+    configuration(int num_dof,double* config_angles)
+    {
+        angles.reserve(num_dof);
+        for (double *it = config_angles; it != config_angles + num_dof; ++it) {
+            angles.push_back(*it);
+        }
+    }
 
     void print_config()
     {
@@ -231,7 +240,7 @@ struct configuration{
             cout<<angles[i]<<"\t";
         cout<<endl;
     }
-    //Write constructor for array based creation of config
+
 };
 
 bool operator== (const configuration &c1, const configuration &c2)
@@ -285,13 +294,54 @@ int interpolation_based_plan(   double*	map,
 
 //======================================================================================================================
 
+double * generate_random_config(const int &numofDOFs)
+{
+    const double MIN_ANGLE = -PI/2;
+    const double MAX_ANGLE = PI/2;
+    unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+    std::default_random_engine generator (seed);
+    std::uniform_real_distribution<double> distribution(MIN_ANGLE,MAX_ANGLE);
+    double *random_config = new double[numofDOFs];
+    for(size_t i=0;i<numofDOFs;i++)
+    {
+        random_config[i] = distribution(generator);
+    }
+    return std::move(random_config);
+}
+
+
+//======================================================================================================================
+//unordered_map<configuration,pair<vector<configuration>,int>>
+int  build_road_map(double*	map,
+                                                                            const int &x_size,
+                                                                            const int &y_size,
+                                                                            const int &numofDOFs,
+                                                                            const int &num_samples_PRM)
+{
+    //unordered_map<configuration,pair<vector<configuration>,int>> road_map;
+    int count=0;
+    while(count<num_samples_PRM)
+    {
+        auto random_config = generate_random_config(numofDOFs);
+        configuration c1(numofDOFs,random_config);
+        c1.print_config();
+        count++;
+    }
+
+    //return road_map;
+    return -100;
+}
+
+//======================================================================================================================
+
 int PRM_planner(double*	map,
         const int &x_size,
         const int &y_size,
         double* armstart_anglesV_rad,
         double* armgoal_anglesV_rad,
         const int &numofDOFs,
-        double*** plan)
+        double*** plan,
+        const int num_samples_PRM)
 {
   /*
    Use an unordered_map<configuration,pair<vector<configuration>,int>>. The int here would sort of represent the connected component
@@ -300,22 +350,10 @@ int PRM_planner(double*	map,
    neighbor is found else allot it a present_count+1 number of component.
    Now this graph can be searched by BFS,DFS, Dijkstra
    */
-  vector<double> start;
-    for (double *it = armstart_anglesV_rad; it != armstart_anglesV_rad + numofDOFs; ++it) {
-        start.push_back(*it);
-    }
-    vector<double> goal;
-    for (double *it = armgoal_anglesV_rad; it != armgoal_anglesV_rad + numofDOFs; ++it) {
-        goal.push_back(*it);
-    }
-  configuration c1{start};
-  c1.print_config();
-  configuration c2{goal};
-  c2.print_config();
-  if(c1!=c2)
-      cout<<"Hello";
-  if(c1==c1)
-     cout<<"Hi";
+
+  const configuration start_config(numofDOFs,armstart_anglesV_rad);
+  const configuration goal_config(numofDOFs,armgoal_anglesV_rad);
+  auto road_map = build_road_map(map,x_size,y_size,numofDOFs,num_samples_PRM);
   return 5;
 }
 
@@ -334,8 +372,8 @@ static void planner(
 	//no plan by default
 	*plan = NULL;
 	*planlength = 0;
-
-    auto numofsamples = PRM_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan);
+    int PRM_NUM_SAMPLES = 5;
+    auto numofsamples = PRM_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,PRM_NUM_SAMPLES);
     auto num_samples = interpolation_based_plan(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan);
     *planlength = num_samples;
     
