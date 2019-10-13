@@ -351,8 +351,8 @@ int interpolation_based_plan(   double*	map,
 
 double * generate_random_config(const int &numofDOFs)
 {
-    const double MIN_ANGLE = -PI;
-    const double MAX_ANGLE = PI;
+    const double MIN_ANGLE = 0;
+    const double MAX_ANGLE = 2*PI;
     unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
     std::default_random_engine generator (seed);
     std::uniform_real_distribution<double> distribution(MIN_ANGLE,MAX_ANGLE);
@@ -555,18 +555,28 @@ void dfs_util(unordered_map<int,Node> road_map,
               unordered_set<int> &visited,
               stack<int> &s,
               const int &start_index,
-              const int &goal_index)
+              const int &goal_index,
+              int &flag)
 {
     visited.insert(start_index);
     s.push(start_index);
 
     if(start_index==goal_index)
+    {
+        cout<<"Goal found"<<endl;
+        flag=1;
         return;
+    }
 
     for(size_t i=0;i<road_map[start_index].neighbors.size();i++)
     {
         if(!visited.count(road_map[start_index].neighbors[i]))
-            dfs_util(road_map,visited,s,road_map[start_index].neighbors[i],goal_index);
+        {
+//            cout<<"Checking vertex: "<<road_map[start_index].neighbors[i]<<endl;
+            dfs_util(road_map,visited,s,road_map[start_index].neighbors[i],goal_index,flag);
+            if(flag)
+                return;
+        }
     }
     s.pop();
 }
@@ -578,7 +588,7 @@ void get_plan_from_stack(unordered_map<int,Node> road_map,
               stack<int> s,
               const int &numofDOFs)
 {
-    s.pop();        //Removing the goal. As the plan only needs to include the start till goal-1
+    //s.pop();        //Removing the goal. As the plan only needs to include the start till goal-1
     stack<int> reversed_stack;
     while(!s.empty())
     {
@@ -587,8 +597,10 @@ void get_plan_from_stack(unordered_map<int,Node> road_map,
     }
 
     int i=0;
+    *plan = (double**) malloc(reversed_stack.size()*sizeof(double*));
     while(!reversed_stack.empty())
     {
+        cout<<"Vertex: "<<reversed_stack.top()<<endl;
         (*plan)[i] = (double *) malloc(numofDOFs * sizeof(double));
         for (int j = 0; j < numofDOFs; j++) {
             (*plan)[i][j] = road_map[reversed_stack.top()].c.angles[j];
@@ -608,10 +620,11 @@ int search_road_map(unordered_map<int,Node> road_map,
     int goal_index = road_map.size()-1;
     unordered_set<int> visited;
     stack<int> s;
-    dfs_util(road_map,visited,s,start_index,goal_index);
-    cout<<"Stack length: "<<s.size()<<endl;
+    int flag = 0;
+    dfs_util(road_map,visited,s,start_index,goal_index,flag);
+    cout<<"Stack length is: "<<s.size()<<endl;
     get_plan_from_stack(road_map,plan,s,numofDOFs);
-    return s.size()-1;
+    return s.size();
 }
 
 
@@ -641,8 +654,9 @@ int PRM_planner(double*	map,
           {
               cout<<"Iteration Number: "<<iteration_number<<endl;
               auto road_map = build_road_map(map,x_size,y_size,numofDOFs,num_samples_PRM);
+              cout<<"Road_Map_length = "<<road_map.size()<<endl;
               auto got_connected = add_start_and_goal_to_road_map(map,x_size,y_size,numofDOFs,road_map,start_config,goal_config);
-
+              cout<<"Road_Map_length = "<<road_map.size()<<endl;
               if(got_connected){
                   auto plan_length = search_road_map(road_map,plan,numofDOFs);
                   cout<<"Plan_Length: "<<plan_length<<endl;
