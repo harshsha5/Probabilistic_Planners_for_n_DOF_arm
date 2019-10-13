@@ -7,10 +7,13 @@
 #include <math.h>
 #include "mex.h"
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <iterator>
 #include <random>
 #include <algorithm>
+#include <queue>
+#include <stack>
 //#include <boost/functional/hash.hpp>
 
 using namespace std;
@@ -410,16 +413,14 @@ vector<int> get_neighbors(const configuration &c,
 //======================================================================================================================
 
 bool is_connection_possible(unordered_map<int,Node> road_map,
-                                  int sample_count,
-                                  int neighbor,
+                                  const configuration &start_config,
+                                  const configuration &end_config,
                                   const int &numofDOFs,
                                   double*	map,
                                   const int &x_size,
                                   const int &y_size)
 {
     double distance = 0;
-    const auto start_config = road_map[neighbor].c;
-    const auto end_config = road_map[sample_count].c;
 
     for (int j = 0; j < numofDOFs; j++){
         if(distance < fabs(start_config.angles[j] - end_config.angles[j]))
@@ -452,7 +453,7 @@ unordered_map<int,Node> add_edges(unordered_map<int,Node> road_map,
 {
     for(auto neighbor:neighbors)
     {
-        if(is_connection_possible(road_map,sample_count,neighbor,numofDOFs,map,x_size,y_size))
+        if(is_connection_possible(road_map,road_map[neighbor].c,road_map[sample_count].c,numofDOFs,map,x_size,y_size))
         {
             road_map[sample_count].neighbors.push_back(neighbor);
             road_map[neighbor].neighbors.push_back(sample_count);
@@ -489,14 +490,130 @@ unordered_map<int,Node> build_road_map(double*	map,
         }
     }
 
-    for(const auto &elt:road_map)
-    {
-        cout<<"Node index: "<<elt.first<<endl;
-        elt.second.print_Node();
-    }
+    /// Visualize Road_Map
+//    for(const auto &elt:road_map)
+//    {
+//        cout<<"Node index: "<<elt.first<<endl;
+//        elt.second.print_Node();
+//    }
 
     return std::move(road_map);
 }
+
+//======================================================================================================================
+
+bool add_start_and_goal_to_road_map(double*	map,
+                                                       const int &x_size,
+                                                       const int &y_size,
+                                                       const int &numofDOFs,
+                                                       unordered_map<int,Node> &road_map,
+                                                       const configuration &start_config,
+                                                       const configuration &goal_config)
+{
+    int road_map_length = road_map.size();
+    int flag = 0;
+    for(const auto &elt:road_map)
+        {
+            if(is_connection_possible(road_map,start_config,elt.second.c,numofDOFs,map,x_size,y_size))
+            {
+                road_map[road_map_length]  = Node {start_config};
+                road_map[road_map_length].neighbors.push_back(elt.first);
+                road_map[elt.first].neighbors.push_back(road_map_length);
+                cout<<"Start added to Graph"<<endl;
+                road_map_length++;
+                flag=1;
+                break;
+            }
+        }
+
+    if(!flag)
+        return false;
+
+    flag = 0;
+    for(const auto &elt:road_map)
+    {
+        if(is_connection_possible(road_map,goal_config,elt.second.c,numofDOFs,map,x_size,y_size))
+        {
+            road_map[road_map_length]  = Node {goal_config};
+            road_map[road_map_length].neighbors.push_back(elt.first);
+            road_map[elt.first].neighbors.push_back(road_map_length);
+            cout<<"Goal added to Graph"<<endl;
+            flag=1;
+            break;
+        }
+    }
+
+    if(!flag)
+        return false;
+
+    return true;
+}
+
+//======================================================================================================================
+
+void dfs_util(unordered_map<int,Node> road_map,
+              unordered_set<int> &visited,
+              stack<int> &s,
+              const int &start_index,
+              const int &goal_index)
+{
+    visited.insert(start_index);
+    s.push(start_index);
+
+    if(start_index==goal_index)
+        return;
+
+    for(size_t i=0;i<road_map[start_index].neighbors.size();i++)
+    {
+        if(!visited.count(road_map[start_index].neighbors[i]))
+            dfs_util(road_map,visited,s,road_map[start_index].neighbors[i],goal_index);
+    }
+    s.pop();
+}
+
+//======================================================================================================================
+
+void get_plan_from_stack(unordered_map<int,Node> road_map,
+              double*** plan,
+              stack<int> s,
+              const int &numofDOFs)
+{
+    s.pop();        //Removing the goal. As the plan only needs to include the start till goal-1
+    stack<int> reversed_stack;
+    while(!s.empty())
+    {
+        reversed_stack.push(s.top());
+        s.pop();
+    }
+
+    int i=0;
+    while(!reversed_stack.empty())
+    {
+        (*plan)[i] = (double *) malloc(numofDOFs * sizeof(double));
+        for (int j = 0; j < numofDOFs; j++) {
+            (*plan)[i][j] = road_map[reversed_stack.top()].c.angles[j];
+        }
+        reversed_stack.pop();
+        i++;
+    }
+}
+
+//======================================================================================================================
+
+int search_road_map(unordered_map<int,Node> road_map,
+                    double*** plan,
+                    const int &numofDOFs)
+{
+    int start_index = road_map.size()-2;
+    int goal_index = road_map.size()-1;
+    unordered_set<int> visited;
+    stack<int> s;
+    dfs_util(road_map,visited,s,start_index,goal_index);
+    cout<<"Stack length: "<<s.size()<<endl;
+    get_plan_from_stack(road_map,plan,s,numofDOFs);
+    return s.size()-1;
+}
+
 
 //======================================================================================================================
 
@@ -507,7 +624,7 @@ int PRM_planner(double*	map,
         double* armgoal_anglesV_rad,
         const int &numofDOFs,
         double*** plan,
-        const int num_samples_PRM)
+        int num_samples_PRM)
 {
   /*
    Use an unordered_map<configuration,pair<vector<configuration>,int>>. The int here would sort of represent the connected component
@@ -519,7 +636,23 @@ int PRM_planner(double*	map,
 
   const configuration start_config(numofDOFs,armstart_anglesV_rad);
   const configuration goal_config(numofDOFs,armgoal_anglesV_rad);
-  auto road_map = build_road_map(map,x_size,y_size,numofDOFs,num_samples_PRM);
+  int iteration_number = 1;
+  while(iteration_number<5)
+          {
+              cout<<"Iteration Number: "<<iteration_number<<endl;
+              auto road_map = build_road_map(map,x_size,y_size,numofDOFs,num_samples_PRM);
+              auto got_connected = add_start_and_goal_to_road_map(map,x_size,y_size,numofDOFs,road_map,start_config,goal_config);
+
+              if(got_connected){
+                  auto plan_length = search_road_map(road_map,plan,numofDOFs);
+                  cout<<"Plan_Length: "<<plan_length<<endl;
+                  return plan_length;
+              }
+              num_samples_PRM *=2;
+              cout<<"New number of samples are: "<<num_samples_PRM<<endl;
+              iteration_number++;
+          }
+  cout<<"PRM didn't find route"<<endl;
   return 5;
 }
 
@@ -538,9 +671,9 @@ static void planner(
 	//no plan by default
 	*plan = NULL;
 	*planlength = 0;
-    int PRM_NUM_SAMPLES = 5;
-    auto numofsamples = PRM_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,PRM_NUM_SAMPLES);
-    auto num_samples = interpolation_based_plan(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan);
+    int PRM_NUM_SAMPLES = 10;
+    auto num_samples = PRM_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,PRM_NUM_SAMPLES);
+    //auto num_samples = interpolation_based_plan(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan);
     *planlength = num_samples;
     
     return;
