@@ -572,7 +572,6 @@ void dfs_util(unordered_map<int,Node> road_map,
     {
         if(!visited.count(road_map[start_index].neighbors[i]))
         {
-//            cout<<"Checking vertex: "<<road_map[start_index].neighbors[i]<<endl;
             dfs_util(road_map,visited,s,road_map[start_index].neighbors[i],goal_index,flag);
             if(flag)
                 return;
@@ -588,7 +587,6 @@ void get_plan_from_stack(unordered_map<int,Node> road_map,
               stack<int> s,
               const int &numofDOFs)
 {
-    //s.pop();        //Removing the goal. As the plan only needs to include the start till goal-1
     stack<int> reversed_stack;
     while(!s.empty())
     {
@@ -600,7 +598,7 @@ void get_plan_from_stack(unordered_map<int,Node> road_map,
     *plan = (double**) malloc(reversed_stack.size()*sizeof(double*));
     while(!reversed_stack.empty())
     {
-        cout<<"Vertex: "<<reversed_stack.top()<<endl;
+//        cout<<"Vertex is: "<<reversed_stack.top()<<endl;
         (*plan)[i] = (double *) malloc(numofDOFs * sizeof(double));
         for (int j = 0; j < numofDOFs; j++) {
             (*plan)[i][j] = road_map[reversed_stack.top()].c.angles[j];
@@ -622,7 +620,6 @@ int search_road_map(unordered_map<int,Node> road_map,
     stack<int> s;
     int flag = 0;
     dfs_util(road_map,visited,s,start_index,goal_index,flag);
-    cout<<"Stack length is: "<<s.size()<<endl;
     get_plan_from_stack(road_map,plan,s,numofDOFs);
     return s.size();
 }
@@ -650,24 +647,25 @@ int PRM_planner(double*	map,
   const configuration start_config(numofDOFs,armstart_anglesV_rad);
   const configuration goal_config(numofDOFs,armgoal_anglesV_rad);
   int iteration_number = 1;
-  while(iteration_number<5)
+  while(true)
           {
               cout<<"Iteration Number: "<<iteration_number<<endl;
               auto road_map = build_road_map(map,x_size,y_size,numofDOFs,num_samples_PRM);
-              cout<<"Road_Map_length = "<<road_map.size()<<endl;
+//              cout<<"Road_Map_length = "<<road_map.size()<<endl;
               auto got_connected = add_start_and_goal_to_road_map(map,x_size,y_size,numofDOFs,road_map,start_config,goal_config);
-              cout<<"Road_Map_length = "<<road_map.size()<<endl;
-              if(got_connected){
-                  auto plan_length = search_road_map(road_map,plan,numofDOFs);
-                  cout<<"Plan_Length: "<<plan_length<<endl;
+//              cout<<"Road_Map_length = "<<road_map.size()<<endl;
+
+              auto plan_length = search_road_map(road_map,plan,numofDOFs);
+              if(plan_length && got_connected)
+              {
+//                  cout<<"Plan_Length: "<<plan_length<<endl;
                   return plan_length;
               }
+
               num_samples_PRM *=2;
               cout<<"New number of samples are: "<<num_samples_PRM<<endl;
               iteration_number++;
           }
-  cout<<"PRM didn't find route"<<endl;
-  return 5;
 }
 
 //======================================================================================================================
@@ -689,7 +687,6 @@ static void planner(
     auto num_samples = PRM_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,PRM_NUM_SAMPLES);
     //auto num_samples = interpolation_based_plan(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan);
     *planlength = num_samples;
-    
     return;
 }
 
