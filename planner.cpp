@@ -10,6 +10,7 @@
 #include <vector>
 #include <iterator>
 #include <random>
+#include <algorithm>
 //#include <boost/functional/hash.hpp>
 
 using namespace std;
@@ -223,9 +224,12 @@ struct configuration{
     friend bool operator== (const configuration &c1, const configuration &c2);
     friend bool operator!= (const configuration &c1, const configuration &c2);
 
+    configuration(){}
+
     configuration(vector<double> config_angles):
     angles(config_angles){
     }
+
     configuration(int num_dof,double* config_angles)
     {
         angles.reserve(num_dof);
@@ -234,11 +238,25 @@ struct configuration{
         }
     }
 
-    void print_config()
+    configuration(const configuration &c2) {angles=c2.angles;}
+
+    void print_config() const
     {
         for(size_t i=0;i<angles.size();i++)
             cout<<angles[i]<<"\t";
         cout<<endl;
+    }
+
+    double get_distance(const configuration &c2) const
+    {
+        assert(angles.size()==c2.angles.size());
+        double dist = 0;
+        for(size_t i=0;i<angles.size();i++)
+        {
+            dist+= pow((angles[i]-c2.angles[i]),2);
+        }
+        //Square root can be put, but not needed as we are just comparing
+        return dist;
     }
 
 };
@@ -252,6 +270,33 @@ bool operator!= (const configuration &c1, const configuration &c2)
 {
     return !(c1== c2);
 }
+
+//struct config_hasher{
+//    long double operator()(vector<double> const& vec) const
+//    {
+//        long double seed = vec.size();
+//        for(auto& i : vec) {
+//            seed ^= i + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+//        }
+//        return seed;
+//    }
+//};
+
+//======================================================================================================================
+
+struct Node{
+    configuration c;
+    vector<int> neighbors;
+
+    Node(){}
+
+    Node (configuration state_config):
+    c(state_config)
+    {}
+
+//    Node (configuration state_config,vector<int> present_neighbors):
+//            c(state_config), neighbors(present_neighbors) {}
+};
 
 //======================================================================================================================
 
@@ -296,8 +341,8 @@ int interpolation_based_plan(   double*	map,
 
 double * generate_random_config(const int &numofDOFs)
 {
-    const double MIN_ANGLE = -PI/2;
-    const double MAX_ANGLE = PI/2;
+    const double MIN_ANGLE = -PI;
+    const double MAX_ANGLE = PI;
     unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
     std::default_random_engine generator (seed);
     std::uniform_real_distribution<double> distribution(MIN_ANGLE,MAX_ANGLE);
@@ -309,27 +354,82 @@ double * generate_random_config(const int &numofDOFs)
     return std::move(random_config);
 }
 
+//======================================================================================================================
+
+struct less1{
+    bool operator()(const pair<double,int> &a,const pair<double,int> &b) const{
+        return a.first>b.first;
+    }
+};
 
 //======================================================================================================================
-//unordered_map<configuration,pair<vector<configuration>,int>>
-int  build_road_map(double*	map,
-                                                                            const int &x_size,
-                                                                            const int &y_size,
-                                                                            const int &numofDOFs,
-                                                                            const int &num_samples_PRM)
+
+vector<int> get_neighbors(const configuration &c,
+                           unordered_map<int,Node> road_map,
+                           const int &nearest_neighbors_to_consider)
 {
-    //unordered_map<configuration,pair<vector<configuration>,int>> road_map;
-    int count=0;
-    while(count<num_samples_PRM)
+    if(road_map.size()==1)
+        return vector<int> {};
+
+    vector<int> neighbors;
+    if(road_map.size()<=nearest_neighbors_to_consider+1)
     {
-        auto random_config = generate_random_config(numofDOFs);
-        configuration c1(numofDOFs,random_config);
-        c1.print_config();
-        count++;
+        for(int i=0;i<road_map.size()-1;i++)
+        {
+            neighbors.push_back(i);
+        }
+        return std::move(neighbors);
     }
 
-    //return road_map;
-    return -100;
+    vector<pair<double,int>> dist_index;
+    for(int i=0;i<road_map.size()-1;i++)
+    {
+//        auto test_config = road_map[i].c;
+        dist_index.emplace_back(make_pair(c.get_distance(road_map[i].c),i));
+    }
+
+    std::make_heap(dist_index.begin(), dist_index.end(), less1());
+    int count = 0;
+    while(count<nearest_neighbors_to_consider)
+    {
+        neighbors.push_back(dist_index.front().second);
+        cout<<"Distance: "<<dist_index.front().first<<endl;
+        std::pop_heap(dist_index.begin(),dist_index.end(),less1());
+        dist_index.pop_back();
+        count++;
+    }
+    return std::move(neighbors);
+}
+
+//======================================================================================================================
+
+unordered_map<int,Node> build_road_map(double*	map,
+                                        const int &x_size,
+                                        const int &y_size,
+                                        const int &numofDOFs,
+                                        const int &num_samples_PRM)
+{
+    unordered_map<int,Node> road_map;
+    int sample_count=0;
+    int firstinvalidconf = 1;
+    int NEAREST_NEIGHBORS_TO_CONSIDER = 2;
+    while(sample_count<num_samples_PRM)
+    {
+        auto random_config = generate_random_config(numofDOFs);
+        if(IsValidArmConfiguration(random_config, numofDOFs, map, x_size, y_size))
+        {   configuration c(numofDOFs,random_config);
+            road_map[sample_count] = Node(c);
+            const auto neighbors = get_neighbors(c,road_map,NEAREST_NEIGHBORS_TO_CONSIDER);
+//            for(size_t i=0;i<neighbors.size();i++)
+//            {
+//                cout<<"Neighbors_indices: "<<neighbors[i]<<"\t";
+//            }
+//            cout<<endl;
+
+            sample_count++;
+        }
+    }
+    return road_map;
 }
 
 //======================================================================================================================
