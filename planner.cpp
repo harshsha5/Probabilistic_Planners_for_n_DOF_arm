@@ -294,8 +294,15 @@ struct Node{
     c(state_config)
     {}
 
-//    Node (configuration state_config,vector<int> present_neighbors):
-//            c(state_config), neighbors(present_neighbors) {}
+    void print_Node() const {
+        c.print_config();
+        cout<<"Neighbors are: "<<endl;
+        for(size_t i=0;i<neighbors.size();i++)
+        {
+            cout<<neighbors[i]<<"\t";
+        }
+        cout<<endl;
+    }
 };
 
 //======================================================================================================================
@@ -393,7 +400,6 @@ vector<int> get_neighbors(const configuration &c,
     while(count<nearest_neighbors_to_consider)
     {
         neighbors.push_back(dist_index.front().second);
-        cout<<"Distance: "<<dist_index.front().first<<endl;
         std::pop_heap(dist_index.begin(),dist_index.end(),less1());
         dist_index.pop_back();
         count++;
@@ -401,6 +407,59 @@ vector<int> get_neighbors(const configuration &c,
     return std::move(neighbors);
 }
 
+//======================================================================================================================
+
+bool is_connection_possible(unordered_map<int,Node> road_map,
+                                  int sample_count,
+                                  int neighbor,
+                                  const int &numofDOFs,
+                                  double*	map,
+                                  const int &x_size,
+                                  const int &y_size)
+{
+    double distance = 0;
+    const auto start_config = road_map[neighbor].c;
+    const auto end_config = road_map[sample_count].c;
+
+    for (int j = 0; j < numofDOFs; j++){
+        if(distance < fabs(start_config.angles[j] - end_config.angles[j]))
+            distance = fabs(start_config.angles[j] - end_config.angles[j]);
+    }
+
+    int numofsamples = (int)(distance/(PI/20));
+    for (int i = 0; i < numofsamples; i++){
+        double *intermediate_config = new double[numofDOFs];
+        for(int j = 0; j < numofDOFs; j++){
+            intermediate_config[j] = start_config.angles[j] + ((double)(i)/(numofsamples-1))*(end_config.angles[j] - start_config.angles[j]);
+        }
+        if(!IsValidArmConfiguration(intermediate_config, numofDOFs, map, x_size, y_size))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+//======================================================================================================================
+
+unordered_map<int,Node> add_edges(unordered_map<int,Node> road_map,
+                                  int sample_count,
+                                  vector<int> neighbors,
+                                  const int &numofDOFs,
+                                  double*	map,
+                                  const int &x_size,
+                                  const int &y_size)
+{
+    for(auto neighbor:neighbors)
+    {
+        if(is_connection_possible(road_map,sample_count,neighbor,numofDOFs,map,x_size,y_size))
+        {
+            road_map[sample_count].neighbors.push_back(neighbor);
+            road_map[neighbor].neighbors.push_back(sample_count);
+        }
+    }
+    return std::move(road_map);
+}
 //======================================================================================================================
 
 unordered_map<int,Node> build_road_map(double*	map,
@@ -412,7 +471,7 @@ unordered_map<int,Node> build_road_map(double*	map,
     unordered_map<int,Node> road_map;
     int sample_count=0;
     int firstinvalidconf = 1;
-    int NEAREST_NEIGHBORS_TO_CONSIDER = 2;
+    int NEAREST_NEIGHBORS_TO_CONSIDER = 3;
     while(sample_count<num_samples_PRM)
     {
         auto random_config = generate_random_config(numofDOFs);
@@ -425,11 +484,18 @@ unordered_map<int,Node> build_road_map(double*	map,
 //                cout<<"Neighbors_indices: "<<neighbors[i]<<"\t";
 //            }
 //            cout<<endl;
-
+            road_map = add_edges(std::move(road_map),sample_count,neighbors,numofDOFs,map,x_size,y_size);
             sample_count++;
         }
     }
-    return road_map;
+
+    for(const auto &elt:road_map)
+    {
+        cout<<"Node index: "<<elt.first<<endl;
+        elt.second.print_Node();
+    }
+
+    return std::move(road_map);
 }
 
 //======================================================================================================================
