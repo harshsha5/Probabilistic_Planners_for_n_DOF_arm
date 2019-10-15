@@ -700,15 +700,16 @@ vector<int> get_k_nearest_neighbors(const configuration &c,
                                     int nearest_neighbors_to_consider)
 {
     vector<pair<double,int>> dist_index;
-    for(int i=0;i<Tree.size()-1;i++)
+    for(int i=0;i<Tree.size();i++)
     {
         dist_index.emplace_back(make_pair(c.get_distance(Tree[i].c),i));
     }
+    cout<<endl;
 
     vector<int> neighbors;
     std::make_heap(dist_index.begin(), dist_index.end(), less1());
     int count = 0;
-    while(count<nearest_neighbors_to_consider || dist_index.empty())
+    while(count<nearest_neighbors_to_consider && !dist_index.empty())
     {
         neighbors.push_back(dist_index.front().second);
         std::pop_heap(dist_index.begin(),dist_index.end(),less1());
@@ -749,7 +750,7 @@ configuration get_epsilon_connect_config(unordered_map<int,T> Tree,
         {
             break;
         }
-       previous_valid_configuration = configuration{intermediate_config};
+       previous_valid_configuration = configuration{numofDOFs,intermediate_config};
     }
     return previous_valid_configuration;
 }
@@ -766,9 +767,9 @@ bool epsilon_connect(const int &nearest_neighbor_index,
                      const int &x_size,
                      const int &y_size,
                      const int &sample_count,
-                     const configuration &random_config)
+                     const configuration &goal_config)
 {
-    const auto q_new = get_epsilon_connect_config(Tree,Tree[nearest_neighbor_index].c,random_config,numofDOFs,map,x_size,y_size)));
+    const auto q_new = get_epsilon_connect_config(Tree,Tree[nearest_neighbor_index].c,random_config,numofDOFs,map,x_size,y_size,epsilon);
     if(q_new!=Tree[nearest_neighbor_index].c)
     {
         Tree[sample_count] = RRT_Node(q_new,nearest_neighbor_index);
@@ -778,6 +779,35 @@ bool epsilon_connect(const int &nearest_neighbor_index,
     return false;
 
 }
+//======================================================================================================================
+
+template <typename T>
+int back_track(double***plan,
+               unordered_map<int,T> Tree,
+               const int &sample_count,
+               const int &numofDOFs,
+               const configuration &start_config)
+{
+    auto present_node = Tree[sample_count];
+    vector<configuration> vec;
+    while(present_node.c!=start_config)
+    {
+        vec.emplace_back(present_node.c);
+        present_node = Tree[present_node.parent];
+    }
+    reverse(vec.begin(), vec.end());
+
+    for (int i = 0; i < vec.size(); i++) {
+        (*plan)[i] = (double *) malloc(numofDOFs * sizeof(double));
+        for (int j = 0; j < numofDOFs; j++) {
+            (*plan)[i][j] = vec[i].angles[j];
+        }
+    }
+
+    return vec.size();
+
+}
+
 //======================================================================================================================
 
 int RRT_planner(double*	map,
@@ -800,30 +830,70 @@ int RRT_planner(double*	map,
     const configuration start_config(numofDOFs,armstart_anglesV_rad);
     const configuration goal_config(numofDOFs,armgoal_anglesV_rad);
 
+    if(!IsValidArmConfiguration(armgoal_anglesV_rad, numofDOFs, map, x_size, y_size))
+    {
+        cout<<"Goal Position is invalid";
+        return 0;
+    }
+
+    if(!IsValidArmConfiguration(armstart_anglesV_rad, numofDOFs, map, x_size, y_size))
+    {
+        cout<<"Start Position is invalid";
+        return 0;
+    }
+
+    /// Validate this if
+    if(start_config==goal_config)
+    {
+        *plan = (double**) malloc(2*sizeof(double*));
+        (*plan)[0] = (double *) malloc(numofDOFs * sizeof(double));
+        (*plan)[0] = armstart_anglesV_rad;
+        (*plan)[1] = (double *) malloc(numofDOFs * sizeof(double));
+        (*plan)[1] = armgoal_anglesV_rad;
+        return 2;
+    }
+
     unordered_map<int,RRT_Node> Tree;
     Tree[0] = RRT_Node(start_config);
     int sample_count = 1;
+    bool is_goal_reached = false;
     while(sample_count<num_samples_RRT)
     {
-        if(dis(gen)<goal_bias)
+        configuration random_config;
+        if(dis(gen)<GOAL_BIAS)
         {
+            random_config = goal_config;
             cout<<"Select goal as random vertex"<<endl;
-            auto random_config = goal_config;
         }
         else
         {
-            auto random_config = generate_random_config(numofDOFs);
+            auto random_state = generate_random_config(numofDOFs);
+            random_config = configuration{numofDOFs,random_state};
         }
 
         const auto k_nearest_neighbors = get_k_nearest_neighbors(random_config,Tree,NEAREST_NEIGHBORS_TO_CONSIDER);
         const auto nearest_neighbor_index = k_nearest_neighbors[0];
-        auto is_goal_reached = epsilon_connect(nearest_neighbor_index,random_config,Tree,EPSILON,numofDOFs,map,x_size,y_size,count,goal_config);
+        is_goal_reached = epsilon_connect(nearest_neighbor_index,random_config,Tree,EPSILON,numofDOFs,map,x_size,y_size,sample_count,goal_config);
         if(is_goal_reached)
+        {
+            cout<<"Path got connected to goal"<<endl;
             break;
+        }
         sample_count++;
     }
 
-    //back_track()
+    /// Visualize Tree
+    for(const auto &elt:Tree)
+    {
+        cout<<"Node index: "<<elt.first<<endl;
+        elt.second.print_RRT_Node();
+    }
+
+    if(is_goal_reached)
+        return back_track(plan,Tree,sample_count,numofDOFs,start_config);
+
+    cout<<"Could not reach goal. Sample more points"<<endl;
+    return -1;
 }
 
 //======================================================================================================================
@@ -842,7 +912,7 @@ static void planner(
 	*plan = NULL;
 	*planlength = 0;
     int PRM_NUM_SAMPLES = 10;
-    int RRT_NUM_SAMPLES = 100;
+    int RRT_NUM_SAMPLES = 5000;
     //auto num_samples = PRM_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,PRM_NUM_SAMPLES);
     auto num_samples = RRT_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
     //auto num_samples = interpolation_based_plan(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan);
