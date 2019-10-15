@@ -711,27 +711,35 @@ vector<int> get_k_nearest_neighbors(const configuration &c,
 template <typename T>
 configuration get_epsilon_connect_config(unordered_map<int,T> Tree,
                                         const configuration &start_config,
-                                        const configuration &end_config,
+                                        configuration end_config,
                                         const int &numofDOFs,
                                         double*	map,
                                         const int &x_size,
                                         const int &y_size,
-                                        const int &epsilon)
+                                        const double &epsilon)
 {
     double distance = 0;
+    const int NUM_OF_SAMPLES = 10;
 
     for (int j = 0; j < numofDOFs; j++){
         if(distance < fabs(start_config.angles[j] - end_config.angles[j]))
             distance = fabs(start_config.angles[j] - end_config.angles[j]);
     }
 
-    int numofsamples = (int)(distance/(PI/20));
-    int i;
+    if(fabs(distance)>epsilon)
+    {
+        configuration new_end_configuration = end_config;
+        for(int j = 0; j < numofDOFs; j++)
+            new_end_configuration.angles[j] = start_config.angles[j] + epsilon*(1/distance)*(end_config.angles[j]-start_config.angles[j]);
+        end_config = new_end_configuration;
+    }
+
     auto previous_valid_configuration = start_config;
-    for (i = 1; i <=epsilon; i++){
+    for(int i=1;i<=NUM_OF_SAMPLES;i++)
+    {
         double *intermediate_config = new double[numofDOFs];
         for(int j = 0; j < numofDOFs; j++){
-            intermediate_config[j] = start_config.angles[j] + ((double)(i)/(numofsamples-1))*(end_config.angles[j] - start_config.angles[j]);
+            intermediate_config[j] = start_config.angles[j] + ((double)(i)/(NUM_OF_SAMPLES))*(end_config.angles[j] - start_config.angles[j]);
         }
         if(!IsValidArmConfiguration(intermediate_config, numofDOFs, map, x_size, y_size))
         {
@@ -740,6 +748,7 @@ configuration get_epsilon_connect_config(unordered_map<int,T> Tree,
        previous_valid_configuration = configuration{numofDOFs,intermediate_config};
     }
     return previous_valid_configuration;
+
 }
 
 //======================================================================================================================
@@ -748,7 +757,7 @@ template <typename T>
 bool epsilon_connect(const int &nearest_neighbor_index,
                      const configuration &random_config,
                      unordered_map<int,T> &Tree,
-                     const int &epsilon,
+                     const double &epsilon,
                      const int &numofDOFs,
                      double*	map,
                      const int &x_size,
@@ -759,13 +768,13 @@ bool epsilon_connect(const int &nearest_neighbor_index,
     const auto q_new = get_epsilon_connect_config(Tree,Tree[nearest_neighbor_index].c,random_config,numofDOFs,map,x_size,y_size,epsilon);
     if(q_new!=Tree[nearest_neighbor_index].c)
     {
-//        cout<<"Newly added configuration is"<<endl;
-//        q_new.print_config();
         Tree[sample_count] = RRT_Node(q_new,nearest_neighbor_index);
-        cout<<"Epsilon connection made"<<endl;
+        if(random_config==goal_config)
+            cout<<"Epsilon connection made"<<endl;
         return true;
     }
-    cout<<"Failed to make epsilon connection"<<endl;
+//    if(random_config==goal_config)
+//        cout<<"Failed to make epsilon connection"<<endl;
     return false;
 
 }
@@ -810,9 +819,9 @@ int RRT_planner(double*	map,
                 double*** plan,
                 int num_samples_RRT)
 {
-    const int EPSILON = 5;
+    const double EPSILON = PI/20;
     const int NEAREST_NEIGHBORS_TO_CONSIDER = 1;
-    const double GOAL_BIAS = 0.05;
+    const double GOAL_BIAS = 0.1;
 
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -850,7 +859,8 @@ int RRT_planner(double*	map,
     bool is_goal_reached = false;
     while(sample_count<num_samples_RRT)
     {
-        cout<<"Sample count is: "<<sample_count<<endl;
+        if(sample_count%1000==0)
+            cout<<"Sample count is: "<<sample_count<<endl;
         configuration random_config;
         if(dis(gen)<GOAL_BIAS)
         {
@@ -862,10 +872,8 @@ int RRT_planner(double*	map,
             auto random_state = generate_random_config(numofDOFs);
             random_config = configuration{numofDOFs,random_state};
         }
-
         const auto k_nearest_neighbors = get_k_nearest_neighbors(random_config,Tree,NEAREST_NEIGHBORS_TO_CONSIDER);
         const auto nearest_neighbor_index = k_nearest_neighbors[0];
-        cout<<"Nearest neighbor selected: "<<nearest_neighbor_index<<endl;
         auto was_epsilon_connection_made = epsilon_connect(nearest_neighbor_index,random_config,Tree,EPSILON,numofDOFs,map,x_size,y_size,sample_count,goal_config);
         if(was_epsilon_connection_made)
         {
@@ -909,7 +917,7 @@ static void planner(
 	*plan = NULL;
 	*planlength = 0;
     int PRM_NUM_SAMPLES = 10;
-    int RRT_NUM_SAMPLES = 5000;
+    int RRT_NUM_SAMPLES = 2000;
     //auto num_samples = PRM_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,PRM_NUM_SAMPLES);
     auto num_samples = RRT_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
     //auto num_samples = interpolation_based_plan(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan);
