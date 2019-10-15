@@ -786,7 +786,7 @@ int back_track(double***plan,
                const int &sample_count,
                const int &numofDOFs,
                const configuration &start_config)
-{
+{   cout<<"Entering back_track"<<endl;
     auto present_node = Tree[sample_count];
     vector<configuration> vec;
     while(present_node.c!=start_config)
@@ -794,15 +794,20 @@ int back_track(double***plan,
         vec.emplace_back(present_node.c);
         present_node = Tree[present_node.parent];
     }
+    cout<<"Path vector formed"<<endl;
     vec.emplace_back(present_node.c);
     reverse(vec.begin(), vec.end());
-
+    if(vec[0]==start_config)
+        cout<<"Start is correct"<<endl;
+    cout<<"Vector size is" <<vec.size()<<endl;
+    *plan = (double**) malloc(vec.size()*sizeof(double*));
     for (int i = 0; i < vec.size(); i++) {
         (*plan)[i] = (double *) malloc(numofDOFs * sizeof(double));
         for (int j = 0; j < numofDOFs; j++) {
             (*plan)[i][j] = vec[i].angles[j];
         }
     }
+    cout<<"Exiting back_track"<<"\t"<<vec.size()<<endl;
 
     return vec.size();
 
@@ -819,9 +824,9 @@ int RRT_planner(double*	map,
                 double*** plan,
                 int num_samples_RRT)
 {
-    const double EPSILON = PI/20;
+    const double EPSILON = PI/25;
     const int NEAREST_NEIGHBORS_TO_CONSIDER = 1;
-    const double GOAL_BIAS = 0.1;
+    const double GOAL_BIAS = 0.05;
 
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -832,13 +837,13 @@ int RRT_planner(double*	map,
 
     if(!IsValidArmConfiguration(armgoal_anglesV_rad, numofDOFs, map, x_size, y_size))
     {
-        cout<<"Goal Position is invalid";
+        cout<<"Goal Position is invalid "<<endl;
         return 0;
     }
 
     if(!IsValidArmConfiguration(armstart_anglesV_rad, numofDOFs, map, x_size, y_size))
     {
-        cout<<"Start Position is invalid";
+        cout<<"Start Position is invalid "<<endl;
         return 0;
     }
 
@@ -894,6 +899,9 @@ int RRT_planner(double*	map,
 //        elt.second.print_RRT_Node();
 //    }
 
+    if(Tree[sample_count].c == goal_config)
+        cout<<"Goal has been correctly reached"<<endl;
+
     if(is_goal_reached)
         return back_track(plan,Tree,sample_count,numofDOFs,start_config);
 
@@ -917,7 +925,7 @@ static void planner(
 	*plan = NULL;
 	*planlength = 0;
     int PRM_NUM_SAMPLES = 10;
-    int RRT_NUM_SAMPLES = 2000;
+    int RRT_NUM_SAMPLES = 12000;
     //auto num_samples = PRM_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,PRM_NUM_SAMPLES);
     auto num_samples = RRT_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
     //auto num_samples = interpolation_based_plan(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan);
