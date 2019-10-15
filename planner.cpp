@@ -274,17 +274,6 @@ bool operator!= (const configuration &c1, const configuration &c2)
     return !(c1== c2);
 }
 
-//struct config_hasher{
-//    long double operator()(vector<double> const& vec) const
-//    {
-//        long double seed = vec.size();
-//        for(auto& i : vec) {
-//            seed ^= i + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-//        }
-//        return seed;
-//    }
-//};
-
 //======================================================================================================================
 
 struct Node{
@@ -704,8 +693,6 @@ vector<int> get_k_nearest_neighbors(const configuration &c,
     {
         dist_index.emplace_back(make_pair(c.get_distance(Tree[i].c),i));
     }
-    cout<<endl;
-
     vector<int> neighbors;
     std::make_heap(dist_index.begin(), dist_index.end(), less1());
     int count = 0;
@@ -772,10 +759,13 @@ bool epsilon_connect(const int &nearest_neighbor_index,
     const auto q_new = get_epsilon_connect_config(Tree,Tree[nearest_neighbor_index].c,random_config,numofDOFs,map,x_size,y_size,epsilon);
     if(q_new!=Tree[nearest_neighbor_index].c)
     {
+//        cout<<"Newly added configuration is"<<endl;
+//        q_new.print_config();
         Tree[sample_count] = RRT_Node(q_new,nearest_neighbor_index);
-        if(q_new==goal_config)
-            return true;
+        cout<<"Epsilon connection made"<<endl;
+        return true;
     }
+    cout<<"Failed to make epsilon connection"<<endl;
     return false;
 
 }
@@ -795,6 +785,7 @@ int back_track(double***plan,
         vec.emplace_back(present_node.c);
         present_node = Tree[present_node.parent];
     }
+    vec.emplace_back(present_node.c);
     reverse(vec.begin(), vec.end());
 
     for (int i = 0; i < vec.size(); i++) {
@@ -859,11 +850,12 @@ int RRT_planner(double*	map,
     bool is_goal_reached = false;
     while(sample_count<num_samples_RRT)
     {
+        cout<<"Sample count is: "<<sample_count<<endl;
         configuration random_config;
         if(dis(gen)<GOAL_BIAS)
         {
             random_config = goal_config;
-            cout<<"Select goal as random vertex"<<endl;
+            cout<<"Selected goal as random vertex"<<endl;
         }
         else
         {
@@ -873,21 +865,26 @@ int RRT_planner(double*	map,
 
         const auto k_nearest_neighbors = get_k_nearest_neighbors(random_config,Tree,NEAREST_NEIGHBORS_TO_CONSIDER);
         const auto nearest_neighbor_index = k_nearest_neighbors[0];
-        is_goal_reached = epsilon_connect(nearest_neighbor_index,random_config,Tree,EPSILON,numofDOFs,map,x_size,y_size,sample_count,goal_config);
-        if(is_goal_reached)
+        cout<<"Nearest neighbor selected: "<<nearest_neighbor_index<<endl;
+        auto was_epsilon_connection_made = epsilon_connect(nearest_neighbor_index,random_config,Tree,EPSILON,numofDOFs,map,x_size,y_size,sample_count,goal_config);
+        if(was_epsilon_connection_made)
         {
-            cout<<"Path got connected to goal"<<endl;
-            break;
+            if(Tree[sample_count].c==goal_config)
+            {
+                cout<<"Connection to goal made"<<endl;
+                is_goal_reached = true;
+                break;
+            }
+            sample_count++;
         }
-        sample_count++;
     }
 
-    /// Visualize Tree
-    for(const auto &elt:Tree)
-    {
-        cout<<"Node index: "<<elt.first<<endl;
-        elt.second.print_RRT_Node();
-    }
+//    /// Visualize Tree
+//    for(const auto &elt:Tree)
+//    {
+//        cout<<"Node index: "<<elt.first<<endl;
+//        elt.second.print_RRT_Node();
+//    }
 
     if(is_goal_reached)
         return back_track(plan,Tree,sample_count,numofDOFs,start_config);
