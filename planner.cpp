@@ -14,7 +14,7 @@
 #include <algorithm>
 #include <queue>
 #include <stack>
-//#include <boost/functional/hash.hpp>
+#include <limits>
 
 using namespace std;
 
@@ -689,9 +689,13 @@ vector<int> get_k_nearest_neighbors(const configuration &c,
                                     int nearest_neighbors_to_consider)
 {
     vector<pair<double,int>> dist_index;
-    for(int i=0;i<Tree.size();i++)
+//    for(int i=0;i<Tree.size();i++)
+//    {
+//        dist_index.emplace_back(make_pair(c.get_distance(Tree[i].c),i));
+//    }
+    for(const auto &elt:Tree)
     {
-        dist_index.emplace_back(make_pair(c.get_distance(Tree[i].c),i));
+        dist_index.emplace_back(make_pair(c.get_distance(elt.second.c),elt.first));
     }
     vector<int> neighbors;
     std::make_heap(dist_index.begin(), dist_index.end(), less1());
@@ -716,16 +720,18 @@ configuration get_epsilon_connect_config(unordered_map<int,T> Tree,
                                         double*	map,
                                         const int &x_size,
                                         const int &y_size,
-                                        const double &epsilon)
+                                        const double &epsilon,
+                                        const int &NUM_OF_SAMPLES)
 {
     double distance = 0;
-    const int NUM_OF_SAMPLES = 10;
 
     for (int j = 0; j < numofDOFs; j++){
         if(distance < fabs(start_config.angles[j] - end_config.angles[j]))
             distance = fabs(start_config.angles[j] - end_config.angles[j]);
     }
-
+//    cout<<"Max distance: "<<distance<<endl;
+//    cout<<"Old End configuration"<<endl;
+//    end_config.print_config();
     if(fabs(distance)>epsilon)
     {
         configuration new_end_configuration = end_config;
@@ -733,7 +739,8 @@ configuration get_epsilon_connect_config(unordered_map<int,T> Tree,
             new_end_configuration.angles[j] = start_config.angles[j] + epsilon*(1/distance)*(end_config.angles[j]-start_config.angles[j]);
         end_config = new_end_configuration;
     }
-
+//    cout<<"New end configuration"<<endl;
+//    end_config.print_config();
     auto previous_valid_configuration = start_config;
     for(int i=1;i<=NUM_OF_SAMPLES;i++)
     {
@@ -743,10 +750,15 @@ configuration get_epsilon_connect_config(unordered_map<int,T> Tree,
         }
         if(!IsValidArmConfiguration(intermediate_config, numofDOFs, map, x_size, y_size))
         {
+//            cout<<"Failed to connect the complete epsilon at "<<i<<endl;
             break;
         }
        previous_valid_configuration = configuration{numofDOFs,intermediate_config};
     }
+//    cout<<"Start configuration is: "<<endl;
+//    start_config.print_config();
+//    cout<<"New Target configuration is: "<<endl;
+//    previous_valid_configuration.print_config();
     return previous_valid_configuration;
 
 }
@@ -763,14 +775,15 @@ bool epsilon_connect(const int &nearest_neighbor_index,
                      const int &x_size,
                      const int &y_size,
                      const int &sample_count,
-                     const configuration &goal_config)
+                     const configuration &goal_config,
+                     const int &discretization_factor=10)
 {
-    const auto q_new = get_epsilon_connect_config(Tree,Tree[nearest_neighbor_index].c,random_config,numofDOFs,map,x_size,y_size,epsilon);
+    const auto q_new = get_epsilon_connect_config(Tree,Tree[nearest_neighbor_index].c,random_config,numofDOFs,map,x_size,y_size,epsilon,discretization_factor);
     if(q_new!=Tree[nearest_neighbor_index].c)
     {
         Tree[sample_count] = RRT_Node(q_new,nearest_neighbor_index);
-        if(random_config==goal_config)
-            cout<<"Epsilon connection made"<<endl;
+//        if(random_config==goal_config)
+//            cout<<"Epsilon connection made"<<endl;
         return true;
     }
 //    if(random_config==goal_config)
@@ -778,15 +791,32 @@ bool epsilon_connect(const int &nearest_neighbor_index,
     return false;
 
 }
+
+//======================================================================================================================
+
+int change_path_vector_to_path(double***plan,
+                          const vector<configuration> &path_vector,
+                          const int &numofDOFs)
+{
+    cout<<"Vector size is" <<path_vector.size()<<endl;
+    *plan = (double**) malloc(path_vector.size()*sizeof(double*));
+    for (int i = 0; i < path_vector.size(); i++) {
+        (*plan)[i] = (double *) malloc(numofDOFs * sizeof(double));
+        for (int j = 0; j < numofDOFs; j++) {
+            (*plan)[i][j] = path_vector[i].angles[j];
+        }
+    }
+    return path_vector.size();
+}
 //======================================================================================================================
 
 template <typename T>
-int back_track(double***plan,
+vector<configuration> get_path_vector(
                unordered_map<int,T> Tree,
                const int &sample_count,
                const int &numofDOFs,
                const configuration &start_config)
-{   cout<<"Entering back_track"<<endl;
+{
     auto present_node = Tree[sample_count];
     vector<configuration> vec;
     while(present_node.c!=start_config)
@@ -794,23 +824,9 @@ int back_track(double***plan,
         vec.emplace_back(present_node.c);
         present_node = Tree[present_node.parent];
     }
-    cout<<"Path vector formed"<<endl;
     vec.emplace_back(present_node.c);
-    reverse(vec.begin(), vec.end());
-    if(vec[0]==start_config)
-        cout<<"Start is correct"<<endl;
-    cout<<"Vector size is" <<vec.size()<<endl;
-    *plan = (double**) malloc(vec.size()*sizeof(double*));
-    for (int i = 0; i < vec.size(); i++) {
-        (*plan)[i] = (double *) malloc(numofDOFs * sizeof(double));
-        for (int j = 0; j < numofDOFs; j++) {
-            (*plan)[i][j] = vec[i].angles[j];
-        }
-    }
-    cout<<"Exiting back_track"<<"\t"<<vec.size()<<endl;
-
-    return vec.size();
-
+    cout<<"Path vector formed"<<endl;
+    return std::move(vec);
 }
 
 //======================================================================================================================
@@ -826,7 +842,8 @@ int RRT_planner(double*	map,
 {
     const double EPSILON = PI/25;
     const int NEAREST_NEIGHBORS_TO_CONSIDER = 1;
-    const double GOAL_BIAS = 0.05;
+    double GOAL_BIAS = 0.01;
+    const int &DISCRETIZATION_FACTOR = 10;  //Interpolation for collision checker
 
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -847,7 +864,6 @@ int RRT_planner(double*	map,
         return 0;
     }
 
-    /// Validate this if
     if(start_config==goal_config)
     {
         *plan = (double**) malloc(2*sizeof(double*));
@@ -866,6 +882,10 @@ int RRT_planner(double*	map,
     {
         if(sample_count%1000==0)
             cout<<"Sample count is: "<<sample_count<<endl;
+
+        if(sample_count>10000)
+            GOAL_BIAS = 0.05;
+
         configuration random_config;
         if(dis(gen)<GOAL_BIAS)
         {
@@ -879,7 +899,7 @@ int RRT_planner(double*	map,
         }
         const auto k_nearest_neighbors = get_k_nearest_neighbors(random_config,Tree,NEAREST_NEIGHBORS_TO_CONSIDER);
         const auto nearest_neighbor_index = k_nearest_neighbors[0];
-        auto was_epsilon_connection_made = epsilon_connect(nearest_neighbor_index,random_config,Tree,EPSILON,numofDOFs,map,x_size,y_size,sample_count,goal_config);
+        auto was_epsilon_connection_made = epsilon_connect(nearest_neighbor_index,random_config,Tree,EPSILON,numofDOFs,map,x_size,y_size,sample_count,goal_config,DISCRETIZATION_FACTOR);
         if(was_epsilon_connection_made)
         {
             if(Tree[sample_count].c==goal_config)
@@ -903,7 +923,124 @@ int RRT_planner(double*	map,
         cout<<"Goal has been correctly reached"<<endl;
 
     if(is_goal_reached)
-        return back_track(plan,Tree,sample_count,numofDOFs,start_config);
+    {
+        auto path_vector = get_path_vector(Tree,sample_count,numofDOFs,start_config);
+        reverse(path_vector.begin(), path_vector.end());
+        return change_path_vector_to_path(plan,path_vector,numofDOFs);
+    }
+
+    cout<<"Could not reach goal. Sample more points"<<endl;
+    return -1;
+}
+
+//======================================================================================================================
+
+int RRT_connect(double*	map,
+                const int &x_size,
+                const int &y_size,
+                double* armstart_anglesV_rad,
+                double* armgoal_anglesV_rad,
+                const int &numofDOFs,
+                double*** plan,
+                int num_samples_RRT_connect)
+{
+    const double EPSILON = PI/25;
+    const double CONNECT_EPSILON = INT_MAX;
+    const int NEAREST_NEIGHBORS_TO_CONSIDER = 1;
+    const int &DISCRETIZATION_FACTOR = 20;  //Interpolation for collision checker
+
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<> dis(0, 1);//uniform distribution between 0 and 1
+
+    const configuration start_config(numofDOFs,armstart_anglesV_rad);
+    const configuration goal_config(numofDOFs,armgoal_anglesV_rad);
+
+    if(!IsValidArmConfiguration(armgoal_anglesV_rad, numofDOFs, map, x_size, y_size))
+    {
+        cout<<"Goal Position is invalid "<<endl;
+        return 0;
+    }
+
+    if(!IsValidArmConfiguration(armstart_anglesV_rad, numofDOFs, map, x_size, y_size))
+    {
+        cout<<"Start Position is invalid "<<endl;
+        return 0;
+    }
+
+    if(start_config==goal_config)
+    {
+        *plan = (double**) malloc(2*sizeof(double*));
+        (*plan)[0] = (double *) malloc(numofDOFs * sizeof(double));
+        (*plan)[0] = armstart_anglesV_rad;
+        (*plan)[1] = (double *) malloc(numofDOFs * sizeof(double));
+        (*plan)[1] = armgoal_anglesV_rad;
+        return 2;
+    }
+
+    unordered_map<int,RRT_Node> forward_Tree;
+    unordered_map<int,RRT_Node> backward_Tree;
+    forward_Tree[0] = RRT_Node(start_config);
+    backward_Tree[0] = RRT_Node(goal_config);
+    int sample_count = 1;
+    bool is_goal_reached = false;
+    while(sample_count<num_samples_RRT_connect)
+    {
+        configuration random_config;
+        auto random_state = generate_random_config(numofDOFs);
+        random_config = configuration{numofDOFs,random_state};
+        if(sample_count%2!=0)   //Expand forward_tree
+        {
+            const auto k_nearest_neighbors = get_k_nearest_neighbors(random_config,forward_Tree,NEAREST_NEIGHBORS_TO_CONSIDER);
+            const auto nearest_neighbor_index = k_nearest_neighbors[0];
+            auto was_epsilon_connection_made = epsilon_connect(nearest_neighbor_index,random_config,forward_Tree,EPSILON,numofDOFs,map,x_size,y_size,sample_count,goal_config,DISCRETIZATION_FACTOR);
+            if(was_epsilon_connection_made)
+            {
+                const auto k_nearest_neighbors = get_k_nearest_neighbors(forward_Tree[sample_count].c,backward_Tree,NEAREST_NEIGHBORS_TO_CONSIDER);
+                const auto nearest_neighbor_index = k_nearest_neighbors[0];
+                auto did_both_trees_connect = epsilon_connect(nearest_neighbor_index,forward_Tree[sample_count].c,backward_Tree,CONNECT_EPSILON,numofDOFs,map,x_size,y_size,sample_count,goal_config,DISCRETIZATION_FACTOR);
+                if(did_both_trees_connect)
+                {
+                    cout<<"Both trees got connected A"<<endl;
+                    is_goal_reached = true;
+                    break;
+                }
+            }
+        }
+
+        else
+        {
+            const auto k_nearest_neighbors = get_k_nearest_neighbors(random_config,backward_Tree,NEAREST_NEIGHBORS_TO_CONSIDER);
+            const auto nearest_neighbor_index = k_nearest_neighbors[0];
+            auto was_epsilon_connection_made = epsilon_connect(nearest_neighbor_index,random_config,backward_Tree,EPSILON,numofDOFs,map,x_size,y_size,sample_count,goal_config,DISCRETIZATION_FACTOR);
+            if(was_epsilon_connection_made)
+            {
+                const auto k_nearest_neighbors = get_k_nearest_neighbors(backward_Tree[sample_count].c,forward_Tree,NEAREST_NEIGHBORS_TO_CONSIDER);
+                const auto nearest_neighbor_index = k_nearest_neighbors[0];
+                auto did_both_trees_connect = epsilon_connect(nearest_neighbor_index,backward_Tree[sample_count].c,forward_Tree,CONNECT_EPSILON,numofDOFs,map,x_size,y_size,sample_count,goal_config,DISCRETIZATION_FACTOR);
+                if(did_both_trees_connect)
+                {
+                    cout<<"Both trees got connected B"<<endl;
+                    is_goal_reached = true;
+                    break;
+                }
+            }
+        }
+        sample_count++;
+    }
+    if(is_goal_reached)
+    {
+        cout<<"Goal has been reached"<<endl;
+        auto path_vector_A= get_path_vector(forward_Tree,sample_count,numofDOFs,start_config);
+        std::reverse(path_vector_A.begin(),path_vector_A.end());
+        path_vector_A.pop_back();
+        auto path_vector_B= get_path_vector(backward_Tree,sample_count,numofDOFs,goal_config);
+        for(auto elt:path_vector_B)
+        {
+            path_vector_A.push_back(elt);
+        }
+        return change_path_vector_to_path(plan,path_vector_A,numofDOFs);
+    }
 
     cout<<"Could not reach goal. Sample more points"<<endl;
     return -1;
@@ -925,9 +1062,11 @@ static void planner(
 	*plan = NULL;
 	*planlength = 0;
     int PRM_NUM_SAMPLES = 10;
-    int RRT_NUM_SAMPLES = 12000;
+    int RRT_NUM_SAMPLES = 350;
+    int RRT_CONNECT_NUM_SAMPLES = 1000;
     //auto num_samples = PRM_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,PRM_NUM_SAMPLES);
-    auto num_samples = RRT_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
+    //auto num_samples = RRT_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
+    auto num_samples = RRT_connect(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
     //auto num_samples = interpolation_based_plan(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan);
     *planlength = num_samples;
     return;
