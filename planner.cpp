@@ -254,9 +254,13 @@ struct configuration{
     {
         assert(angles.size()==c2.angles.size());
         double dist = 0;
+//        for(size_t i=0;i<angles.size();i++)
+//        {
+//            dist+= pow((angles[i]-c2.angles[i]),2);
+//        }
         for(size_t i=0;i<angles.size();i++)
         {
-            dist+= pow((angles[i]-c2.angles[i]),2);
+            dist+= std::min(pow((angles[i]-c2.angles[i]),2),pow((angles[i]-(c2.angles[i]-2*PI)),2));
         }
         //Square root can be put, but not needed as we are just comparing
         return dist;
@@ -318,6 +322,34 @@ struct RRT_Node{
     void print_RRT_Node() const {
         c.print_config();
         cout<<"Parent is: "<<parent<<endl;
+    }
+};
+
+//======================================================================================================================
+
+struct RRT_Star_Node{
+    configuration c;
+    int parent;
+    double gcost;
+
+    RRT_Star_Node(){}
+
+    RRT_Star_Node (configuration state_config):
+            c(state_config),
+            parent(-1),
+            gcost(INT_MAX)
+    {}
+
+    RRT_Star_Node (configuration state_config, int node_parent,double new_gcost):
+            c(state_config),
+            parent(node_parent),
+            gcost(new_gcost)
+    {}
+
+    void print_RRT_Star_Node() const {
+        c.print_config();
+        cout<<"Parent is: "<<parent<<endl;
+        cout<<"g_cost is: "<<gcost<<endl;
     }
 };
 
@@ -831,27 +863,17 @@ vector<configuration> get_path_vector(
 
 //======================================================================================================================
 
-int RRT_planner(double*	map,
-                const int &x_size,
-                const int &y_size,
-                double* armstart_anglesV_rad,
-                double* armgoal_anglesV_rad,
-                const int &numofDOFs,
-                double*** plan,
-                int num_samples_RRT)
+int base_cases_RRT_family(double*	map,
+                          const int &x_size,
+                          const int &y_size,
+                          double* armstart_anglesV_rad,
+                          double* armgoal_anglesV_rad,
+                          const int &numofDOFs,
+                          double*** plan,
+                          const configuration &start_config,
+                          const configuration &goal_config)
+
 {
-    const double EPSILON = PI/25;
-    const int NEAREST_NEIGHBORS_TO_CONSIDER = 1;
-    double GOAL_BIAS = 0.01;
-    const int &DISCRETIZATION_FACTOR = 10;  //Interpolation for collision checker
-
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<> dis(0, 1);//uniform distribution between 0 and 1
-
-    const configuration start_config(numofDOFs,armstart_anglesV_rad);
-    const configuration goal_config(numofDOFs,armgoal_anglesV_rad);
-
     if(!IsValidArmConfiguration(armgoal_anglesV_rad, numofDOFs, map, x_size, y_size))
     {
         cout<<"Goal Position is invalid "<<endl;
@@ -874,6 +896,52 @@ int RRT_planner(double*	map,
         return 2;
     }
 
+    return -1;
+}
+
+//======================================================================================================================
+
+bool is_new_sample_in_goal_region(const configuration &new_tree_config,
+                                  const configuration &goal_config,
+                                  const double &goal_region_threshold)
+{
+    assert(new_tree_config.angles.size()==goal_config.angles.size());
+    for(size_t i=0;i<goal_config.angles.size();i++)
+    {
+        if(goal_config.angles[i] - goal_region_threshold > new_tree_config.angles[i] || goal_config.angles[i] + goal_region_threshold < new_tree_config.angles[i])
+            return false;
+    }
+    return true;
+}
+
+//======================================================================================================================
+
+int RRT_planner(double*	map,
+                const int &x_size,
+                const int &y_size,
+                double* armstart_anglesV_rad,
+                double* armgoal_anglesV_rad,
+                const int &numofDOFs,
+                double*** plan,
+                int num_samples_RRT)
+{
+    const double EPSILON = PI/25;
+    const int NEAREST_NEIGHBORS_TO_CONSIDER = 1;
+    double GOAL_BIAS = 0.01;
+    const int &DISCRETIZATION_FACTOR = 10;  //Interpolation for collision checker
+    const double GOAL_REGION_THRESHOLD = PI/60;
+
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<> dis(0, 1);//uniform distribution between 0 and 1
+
+    const configuration start_config(numofDOFs,armstart_anglesV_rad);
+    const configuration goal_config(numofDOFs,armgoal_anglesV_rad);
+
+    auto base_case_result = base_cases_RRT_family(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,start_config,goal_config);
+    if(base_case_result!=-1)
+        return base_case_result;
+
     unordered_map<int,RRT_Node> Tree;
     Tree[0] = RRT_Node(start_config);
     int sample_count = 1;
@@ -890,7 +958,6 @@ int RRT_planner(double*	map,
         if(dis(gen)<GOAL_BIAS)
         {
             random_config = goal_config;
-            cout<<"Selected goal as random vertex"<<endl;
         }
         else
         {
@@ -902,10 +969,12 @@ int RRT_planner(double*	map,
         auto was_epsilon_connection_made = epsilon_connect(nearest_neighbor_index,random_config,Tree,EPSILON,numofDOFs,map,x_size,y_size,sample_count,goal_config,DISCRETIZATION_FACTOR);
         if(was_epsilon_connection_made)
         {
-            if(Tree[sample_count].c==goal_config)
+            if(is_new_sample_in_goal_region(Tree[sample_count].c,goal_config,GOAL_REGION_THRESHOLD))
             {
-                cout<<"Connection to goal made"<<endl;
+                cout<<"Connection to goal region made"<<endl;
+                Tree[sample_count+1] = RRT_Node(goal_config,sample_count);  //Adding goal configuration to my tree
                 is_goal_reached = true;
+                sample_count++;     //Adding this for goal. So that backtrack starts at goal.
                 break;
             }
             sample_count++;
@@ -949,34 +1018,12 @@ int RRT_connect(double*	map,
     const int NEAREST_NEIGHBORS_TO_CONSIDER = 1;
     const int &DISCRETIZATION_FACTOR = 20;  //Interpolation for collision checker
 
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<> dis(0, 1);//uniform distribution between 0 and 1
-
     const configuration start_config(numofDOFs,armstart_anglesV_rad);
     const configuration goal_config(numofDOFs,armgoal_anglesV_rad);
 
-    if(!IsValidArmConfiguration(armgoal_anglesV_rad, numofDOFs, map, x_size, y_size))
-    {
-        cout<<"Goal Position is invalid "<<endl;
-        return 0;
-    }
-
-    if(!IsValidArmConfiguration(armstart_anglesV_rad, numofDOFs, map, x_size, y_size))
-    {
-        cout<<"Start Position is invalid "<<endl;
-        return 0;
-    }
-
-    if(start_config==goal_config)
-    {
-        *plan = (double**) malloc(2*sizeof(double*));
-        (*plan)[0] = (double *) malloc(numofDOFs * sizeof(double));
-        (*plan)[0] = armstart_anglesV_rad;
-        (*plan)[1] = (double *) malloc(numofDOFs * sizeof(double));
-        (*plan)[1] = armgoal_anglesV_rad;
-        return 2;
-    }
+    auto base_case_result = base_cases_RRT_family(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,start_config,goal_config);
+    if(base_case_result!=-1)
+        return base_case_result;
 
     unordered_map<int,RRT_Node> forward_Tree;
     unordered_map<int,RRT_Node> backward_Tree;
@@ -1048,6 +1095,75 @@ int RRT_connect(double*	map,
 
 //======================================================================================================================
 
+//int RRT_star(double*	map,
+//                const int &x_size,
+//                const int &y_size,
+//                double* armstart_anglesV_rad,
+//                double* armgoal_anglesV_rad,
+//                const int &numofDOFs,
+//                double*** plan,
+//                int num_samples_RRT_star)
+// {
+//    const double EPSILON = PI / 25;
+//    const int NEAREST_NEIGHBORS_TO_CONSIDER = 1;
+//    const int NEAREST_NEIGHBORS_FOR_REWIRING = 3;
+//    double GOAL_BIAS = 0.01;
+//    const int &DISCRETIZATION_FACTOR = 10;  //Interpolation for collision checker
+//
+//    std::random_device rd;
+//    std::mt19937 gen(rd());
+//    std::uniform_real_distribution<> dis(0, 1);//uniform distribution between 0 and 1
+//
+//    const configuration start_config(numofDOFs, armstart_anglesV_rad);
+//    const configuration goal_config(numofDOFs, armgoal_anglesV_rad);
+//
+//    auto base_case_result = base_cases_RRT_family(map, x_size, y_size, armstart_anglesV_rad, armgoal_anglesV_rad,
+//                                                  numofDOFs, plan, start_config, goal_config);
+//    if (base_case_result != -1)
+//        return base_case_result;
+//
+//    unordered_map<int, RRT_Star_Node> Tree;
+//    Tree[0] = RRT_Star_Node(start_config);
+//    Tree[0].gcost = 0;
+//    int sample_count = 1;
+//    bool is_goal_reached = false;
+//    while (sample_count < num_samples_RRT_star) {
+//        if (sample_count % 1000 == 0)
+//            cout << "Sample count is: " << sample_count << endl;
+//
+//        if (sample_count > 10000)
+//            GOAL_BIAS = 0.05;
+//
+//        configuration random_config;
+//        if (dis(gen) < GOAL_BIAS) {
+//            random_config = goal_config;
+//            cout << "Selected goal as random vertex" << endl;
+//        } else {
+//            auto random_state = generate_random_config(numofDOFs);
+//            random_config = configuration{numofDOFs, random_state};
+//        }
+//
+//        const auto k_nearest_neighbors = get_k_nearest_neighbors(random_config, Tree, NEAREST_NEIGHBORS_TO_CONSIDER);
+//        const auto nearest_neighbor_index = k_nearest_neighbors[0];
+//        auto was_epsilon_connection_made = epsilon_connect(nearest_neighbor_index, random_config, Tree, EPSILON,
+//                                                           numofDOFs, map, x_size, y_size, sample_count, goal_config,
+//                                                           DISCRETIZATION_FACTOR);
+//
+//        if(was_epsilon_connection_made)
+//        {
+//            const auto k_nearest_neighbors = get_k_nearest_neighbors(Tree[sample_count].c, Tree, NEAREST_NEIGHBORS_FOR_REWIRING+1);
+//            k_nearest_neighbors.erase(k_nearest_neighbors.begin()) //Because the closest element will be the vertex itself. Verify it's true!
+//            for(int i=0;i<k_nearest_neighbors.size();k++)
+//                rewire_RRT_star(Tree[sample_count].c,k_nearest_neighbors[i],Tree);
+//            //Rewire again.See
+//        }
+//        //Change Tree type to take into account the path cost in the tree
+//        sample_count++;
+//    }
+//    return 5;
+//}
+//======================================================================================================================
+
 static void planner(
 		   double*	map,
 		   int x_size,
@@ -1062,12 +1178,14 @@ static void planner(
 	*plan = NULL;
 	*planlength = 0;
     int PRM_NUM_SAMPLES = 10;
-    int RRT_NUM_SAMPLES = 350;
-    int RRT_CONNECT_NUM_SAMPLES = 1000;
+    int RRT_NUM_SAMPLES = 35000;
+    int RRT_CONNECT_NUM_SAMPLES = 10000;
+    int RRT_STAR_NUM_SAMPLES = 10;
     //auto num_samples = PRM_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,PRM_NUM_SAMPLES);
-    //auto num_samples = RRT_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
-    auto num_samples = RRT_connect(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
-    //auto num_samples = interpolation_based_plan(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan);
+    auto num_samples = RRT_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
+    //auto num_samples = RRT_connect(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
+    //auto num_samples = RRT_star(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_STAR_NUM_SAMPLES);
+    //num_samples = interpolation_based_plan(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan);
     *planlength = num_samples;
     return;
 }
