@@ -739,9 +739,7 @@ vector<int> get_k_nearest_neighbors(const configuration &c,
 
 //======================================================================================================================
 
-template <typename T>
-configuration get_epsilon_connect_config(unordered_map<int,T> Tree,
-                                        const configuration &start_config,
+configuration get_epsilon_connect_config(const configuration &start_config,
                                         configuration end_config,
                                         const int &numofDOFs,
                                         double*	map,
@@ -798,9 +796,11 @@ bool epsilon_connect(const int &nearest_neighbor_index,
                      const configuration &goal_config,
                      const int &discretization_factor=10)
 {
-    const auto q_new = get_epsilon_connect_config(Tree,Tree[nearest_neighbor_index].c,random_config,numofDOFs,map,x_size,y_size,epsilon,discretization_factor);
+    const auto q_new = get_epsilon_connect_config(Tree[nearest_neighbor_index].c,random_config,numofDOFs,map,x_size,y_size,epsilon,discretization_factor);
     if(q_new!=Tree[nearest_neighbor_index].c)
     {
+        if(Tree.count(sample_count)!=0)
+            cout<<"Overwriting in tree"<<endl;
         Tree[sample_count] = RRT_Node(q_new,nearest_neighbor_index);
 //        if(random_config==goal_config)
 //            cout<<"Epsilon connection made"<<endl;
@@ -828,7 +828,7 @@ bool epsilon_connect_RRTstar(const int &nearest_neighbor_index,
                              const int &discretization_factor=10)
 {
     /// This and the function above are entirely common. The only difference is the node type. Make common function.
-    const auto q_new = get_epsilon_connect_config(Tree,Tree[nearest_neighbor_index].c,random_config,numofDOFs,map,x_size,y_size,epsilon,discretization_factor);
+    const auto q_new = get_epsilon_connect_config(Tree[nearest_neighbor_index].c,random_config,numofDOFs,map,x_size,y_size,epsilon,discretization_factor);
     if(q_new!=Tree[nearest_neighbor_index].c)
     {
         auto distance_bw_configs = q_new.get_distance(Tree[nearest_neighbor_index].c);
@@ -1085,7 +1085,7 @@ int RRT_connect(double*	map,
                 const auto k_nearest_neighbors = get_k_nearest_neighbors(forward_Tree[sample_count].c,backward_Tree,NEAREST_NEIGHBORS_TO_CONSIDER);
                 const auto nearest_neighbor_index = k_nearest_neighbors[0];
                 auto did_both_trees_connect = epsilon_connect(nearest_neighbor_index,forward_Tree[sample_count].c,backward_Tree,CONNECT_EPSILON,numofDOFs,map,x_size,y_size,sample_count,goal_config,DISCRETIZATION_FACTOR);
-                if(did_both_trees_connect)
+                if(did_both_trees_connect && backward_Tree[sample_count].c==forward_Tree[sample_count].c)
                 {
                     cout<<"Both trees got connected A"<<endl;
                     is_goal_reached = true;
@@ -1104,7 +1104,7 @@ int RRT_connect(double*	map,
                 const auto k_nearest_neighbors = get_k_nearest_neighbors(backward_Tree[sample_count].c,forward_Tree,NEAREST_NEIGHBORS_TO_CONSIDER);
                 const auto nearest_neighbor_index = k_nearest_neighbors[0];
                 auto did_both_trees_connect = epsilon_connect(nearest_neighbor_index,backward_Tree[sample_count].c,forward_Tree,CONNECT_EPSILON,numofDOFs,map,x_size,y_size,sample_count,goal_config,DISCRETIZATION_FACTOR);
-                if(did_both_trees_connect)
+                if(did_both_trees_connect && backward_Tree[sample_count].c==forward_Tree[sample_count].c)
                 {
                     cout<<"Both trees got connected B"<<endl;
                     is_goal_reached = true;
@@ -1114,6 +1114,7 @@ int RRT_connect(double*	map,
         }
         sample_count++;
     }
+
     if(is_goal_reached)
     {
         cout<<"Goal has been reached"<<endl;
@@ -1247,8 +1248,8 @@ static void planner(
     int RRT_CONNECT_NUM_SAMPLES = 10000;
     int RRT_STAR_NUM_SAMPLES = 100000;
     //auto num_samples = PRM_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,PRM_NUM_SAMPLES);
-    auto num_samples = RRT_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
-    //auto num_samples = RRT_connect(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
+    //auto num_samples = RRT_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
+    auto num_samples = RRT_connect(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
     //auto num_samples = RRT_star(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_STAR_NUM_SAMPLES);
     //num_samples = interpolation_based_plan(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan);
     *planlength = num_samples;
