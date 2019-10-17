@@ -254,10 +254,6 @@ struct configuration{
     {
         assert(angles.size()==c2.angles.size());
         double dist = 0;
-//        for(size_t i=0;i<angles.size();i++)
-//        {
-//            dist+= pow((angles[i]-c2.angles[i]),2);
-//        }
         for(size_t i=0;i<angles.size();i++)
         {
             dist+= std::min(pow((angles[i]-c2.angles[i]),2),pow((angles[i]-(c2.angles[i]-2*PI)),2));
@@ -457,13 +453,12 @@ vector<int> get_neighbors(const configuration &c,
 
 //======================================================================================================================
 
-bool is_connection_possible(unordered_map<int,Node> road_map,
-                                  const configuration &start_config,
-                                  const configuration &end_config,
-                                  const int &numofDOFs,
-                                  double*	map,
-                                  const int &x_size,
-                                  const int &y_size)
+bool is_connection_possible(  const configuration &start_config,
+                              const configuration &end_config,
+                              const int &numofDOFs,
+                              double*	map,
+                              const int &x_size,
+                              const int &y_size )
 {
     double distance = 0;
 
@@ -498,7 +493,7 @@ unordered_map<int,Node> add_edges(unordered_map<int,Node> road_map,
 {
     for(auto neighbor:neighbors)
     {
-        if(is_connection_possible(road_map,road_map[neighbor].c,road_map[sample_count].c,numofDOFs,map,x_size,y_size))
+        if(is_connection_possible(road_map[neighbor].c,road_map[sample_count].c,numofDOFs,map,x_size,y_size))
         {
             road_map[sample_count].neighbors.push_back(neighbor);
             road_map[neighbor].neighbors.push_back(sample_count);
@@ -559,7 +554,7 @@ bool add_start_and_goal_to_road_map(double*	map,
     int flag = 0;
     for(const auto &elt:road_map)
         {
-            if(is_connection_possible(road_map,start_config,elt.second.c,numofDOFs,map,x_size,y_size))
+            if(is_connection_possible(start_config,elt.second.c,numofDOFs,map,x_size,y_size))
             {
                 road_map[road_map_length]  = Node {start_config};
                 road_map[road_map_length].neighbors.push_back(elt.first);
@@ -577,7 +572,7 @@ bool add_start_and_goal_to_road_map(double*	map,
     flag = 0;
     for(const auto &elt:road_map)
     {
-        if(is_connection_possible(road_map,goal_config,elt.second.c,numofDOFs,map,x_size,y_size))
+        if(is_connection_possible(goal_config,elt.second.c,numofDOFs,map,x_size,y_size))
         {
             road_map[road_map_length]  = Node {goal_config};
             road_map[road_map_length].neighbors.push_back(elt.first);
@@ -761,9 +756,7 @@ configuration get_epsilon_connect_config(unordered_map<int,T> Tree,
         if(distance < fabs(start_config.angles[j] - end_config.angles[j]))
             distance = fabs(start_config.angles[j] - end_config.angles[j]);
     }
-//    cout<<"Max distance: "<<distance<<endl;
-//    cout<<"Old End configuration"<<endl;
-//    end_config.print_config();
+
     if(fabs(distance)>epsilon)
     {
         configuration new_end_configuration = end_config;
@@ -771,8 +764,7 @@ configuration get_epsilon_connect_config(unordered_map<int,T> Tree,
             new_end_configuration.angles[j] = start_config.angles[j] + epsilon*(1/distance)*(end_config.angles[j]-start_config.angles[j]);
         end_config = new_end_configuration;
     }
-//    cout<<"New end configuration"<<endl;
-//    end_config.print_config();
+
     auto previous_valid_configuration = start_config;
     for(int i=1;i<=NUM_OF_SAMPLES;i++)
     {
@@ -782,15 +774,11 @@ configuration get_epsilon_connect_config(unordered_map<int,T> Tree,
         }
         if(!IsValidArmConfiguration(intermediate_config, numofDOFs, map, x_size, y_size))
         {
-//            cout<<"Failed to connect the complete epsilon at "<<i<<endl;
             break;
         }
        previous_valid_configuration = configuration{numofDOFs,intermediate_config};
     }
-//    cout<<"Start configuration is: "<<endl;
-//    start_config.print_config();
-//    cout<<"New Target configuration is: "<<endl;
-//    previous_valid_configuration.print_config();
+
     return previous_valid_configuration;
 
 }
@@ -820,6 +808,33 @@ bool epsilon_connect(const int &nearest_neighbor_index,
     }
 //    if(random_config==goal_config)
 //        cout<<"Failed to make epsilon connection"<<endl;
+    return false;
+
+}
+
+//======================================================================================================================
+
+template <typename T>
+bool epsilon_connect_RRTstar(const int &nearest_neighbor_index,
+                             const configuration &random_config,
+                             unordered_map<int,T> &Tree,
+                             const double &epsilon,
+                             const int &numofDOFs,
+                             double*	map,
+                             const int &x_size,
+                             const int &y_size,
+                             const int &sample_count,
+                             const configuration &goal_config,
+                             const int &discretization_factor=10)
+{
+    /// This and the function above are entirely common. The only difference is the node type. Make common function.
+    const auto q_new = get_epsilon_connect_config(Tree,Tree[nearest_neighbor_index].c,random_config,numofDOFs,map,x_size,y_size,epsilon,discretization_factor);
+    if(q_new!=Tree[nearest_neighbor_index].c)
+    {
+        auto distance_bw_configs = q_new.get_distance(Tree[nearest_neighbor_index].c);
+        Tree[sample_count] = RRT_Star_Node(q_new,nearest_neighbor_index,Tree[nearest_neighbor_index].gcost + std::move(distance_bw_configs));
+        return true;
+    }
     return false;
 
 }
@@ -916,6 +931,30 @@ bool is_new_sample_in_goal_region(const configuration &new_tree_config,
 
 //======================================================================================================================
 
+template <typename T>
+void rewire_RRT_star(const int &child_index,
+                     const int &potential_parent_index,
+                     unordered_map<int,T> &Tree,
+                     double*	map,
+                     const int &x_size,
+                     const int &y_size,
+                     const int &numofDOFs)
+{
+    const auto potential_parent_config = Tree[potential_parent_index].c;
+    const auto child_config = Tree[child_index].c;
+    if(is_connection_possible(potential_parent_config,child_config,numofDOFs,map,x_size,y_size))
+    {
+        const auto transition_cost = potential_parent_config.get_distance(child_config);
+        if(Tree[potential_parent_index].gcost + transition_cost < Tree[child_index].gcost)
+            {
+                Tree[child_index].gcost = Tree[potential_parent_index].gcost + transition_cost;
+                Tree[child_index].parent = potential_parent_index;
+            }
+    }
+}
+
+//======================================================================================================================
+
 int RRT_planner(double*	map,
                 const int &x_size,
                 const int &y_size,
@@ -929,7 +968,7 @@ int RRT_planner(double*	map,
     const int NEAREST_NEIGHBORS_TO_CONSIDER = 1;
     double GOAL_BIAS = 0.01;
     const int &DISCRETIZATION_FACTOR = 10;  //Interpolation for collision checker
-    const double GOAL_REGION_THRESHOLD = PI/60;
+    const double GOAL_REGION_THRESHOLD = PI/36;
 
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -1095,73 +1134,99 @@ int RRT_connect(double*	map,
 
 //======================================================================================================================
 
-//int RRT_star(double*	map,
-//                const int &x_size,
-//                const int &y_size,
-//                double* armstart_anglesV_rad,
-//                double* armgoal_anglesV_rad,
-//                const int &numofDOFs,
-//                double*** plan,
-//                int num_samples_RRT_star)
-// {
-//    const double EPSILON = PI / 25;
-//    const int NEAREST_NEIGHBORS_TO_CONSIDER = 1;
-//    const int NEAREST_NEIGHBORS_FOR_REWIRING = 3;
-//    double GOAL_BIAS = 0.01;
-//    const int &DISCRETIZATION_FACTOR = 10;  //Interpolation for collision checker
-//
-//    std::random_device rd;
-//    std::mt19937 gen(rd());
-//    std::uniform_real_distribution<> dis(0, 1);//uniform distribution between 0 and 1
-//
-//    const configuration start_config(numofDOFs, armstart_anglesV_rad);
-//    const configuration goal_config(numofDOFs, armgoal_anglesV_rad);
-//
-//    auto base_case_result = base_cases_RRT_family(map, x_size, y_size, armstart_anglesV_rad, armgoal_anglesV_rad,
-//                                                  numofDOFs, plan, start_config, goal_config);
-//    if (base_case_result != -1)
-//        return base_case_result;
-//
-//    unordered_map<int, RRT_Star_Node> Tree;
-//    Tree[0] = RRT_Star_Node(start_config);
-//    Tree[0].gcost = 0;
-//    int sample_count = 1;
-//    bool is_goal_reached = false;
-//    while (sample_count < num_samples_RRT_star) {
-//        if (sample_count % 1000 == 0)
-//            cout << "Sample count is: " << sample_count << endl;
-//
-//        if (sample_count > 10000)
-//            GOAL_BIAS = 0.05;
-//
-//        configuration random_config;
-//        if (dis(gen) < GOAL_BIAS) {
-//            random_config = goal_config;
-//            cout << "Selected goal as random vertex" << endl;
-//        } else {
-//            auto random_state = generate_random_config(numofDOFs);
-//            random_config = configuration{numofDOFs, random_state};
-//        }
-//
-//        const auto k_nearest_neighbors = get_k_nearest_neighbors(random_config, Tree, NEAREST_NEIGHBORS_TO_CONSIDER);
-//        const auto nearest_neighbor_index = k_nearest_neighbors[0];
-//        auto was_epsilon_connection_made = epsilon_connect(nearest_neighbor_index, random_config, Tree, EPSILON,
-//                                                           numofDOFs, map, x_size, y_size, sample_count, goal_config,
-//                                                           DISCRETIZATION_FACTOR);
-//
-//        if(was_epsilon_connection_made)
-//        {
-//            const auto k_nearest_neighbors = get_k_nearest_neighbors(Tree[sample_count].c, Tree, NEAREST_NEIGHBORS_FOR_REWIRING+1);
-//            k_nearest_neighbors.erase(k_nearest_neighbors.begin()) //Because the closest element will be the vertex itself. Verify it's true!
-//            for(int i=0;i<k_nearest_neighbors.size();k++)
-//                rewire_RRT_star(Tree[sample_count].c,k_nearest_neighbors[i],Tree);
-//            //Rewire again.See
-//        }
-//        //Change Tree type to take into account the path cost in the tree
-//        sample_count++;
-//    }
-//    return 5;
-//}
+int RRT_star(double*	map,
+                const int &x_size,
+                const int &y_size,
+                double* armstart_anglesV_rad,
+                double* armgoal_anglesV_rad,
+                const int &numofDOFs,
+                double*** plan,
+                int num_samples_RRT_star)
+ {
+    const double EPSILON = PI / 25;
+    const int NEAREST_NEIGHBORS_TO_CONSIDER = 1;
+    const int NEAREST_NEIGHBORS_FOR_REWIRING = 3;
+    double GOAL_BIAS = 0.01;
+    const int &DISCRETIZATION_FACTOR = 10;  //Interpolation for collision checker
+    const double GOAL_REGION_THRESHOLD = PI/36;
+
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<> dis(0, 1);//uniform distribution between 0 and 1
+
+    const configuration start_config(numofDOFs, armstart_anglesV_rad);
+    const configuration goal_config(numofDOFs, armgoal_anglesV_rad);
+
+    auto base_case_result = base_cases_RRT_family(map, x_size, y_size, armstart_anglesV_rad, armgoal_anglesV_rad,
+                                                  numofDOFs, plan, start_config, goal_config);
+    if (base_case_result != -1)
+        return base_case_result;
+
+    unordered_map<int, RRT_Star_Node> Tree;
+    Tree[0] = RRT_Star_Node(start_config);
+    Tree[0].gcost = 0;
+    int sample_count = 1;
+    bool is_goal_reached = false;
+    while (sample_count < num_samples_RRT_star) {
+        if (sample_count % 1000 == 0)
+            cout << "Sample count is: " << sample_count << endl;
+
+        if (sample_count > 10000)
+            GOAL_BIAS = 0.05;
+
+        configuration random_config;
+        if (dis(gen) < GOAL_BIAS) {
+            random_config = goal_config;
+
+        } else {
+            auto random_state = generate_random_config(numofDOFs);
+            random_config = configuration{numofDOFs, random_state};
+        }
+
+        const auto k_nearest_neighbors = get_k_nearest_neighbors(random_config, Tree, NEAREST_NEIGHBORS_TO_CONSIDER);
+        const auto nearest_neighbor_index = k_nearest_neighbors[0];
+        auto was_epsilon_connection_made = epsilon_connect_RRTstar(nearest_neighbor_index, random_config, Tree, EPSILON,
+                                                           numofDOFs, map, x_size, y_size, sample_count, goal_config,
+                                                           DISCRETIZATION_FACTOR);
+
+        if(was_epsilon_connection_made)
+        {
+            auto k_nearest_neighbors = get_k_nearest_neighbors(Tree[sample_count].c, Tree, NEAREST_NEIGHBORS_FOR_REWIRING+1);
+            k_nearest_neighbors.erase(k_nearest_neighbors.begin()); /// Because the closest element will be the vertex itself.
+
+            for(int i=0;i<k_nearest_neighbors.size();i++)
+                rewire_RRT_star(sample_count,k_nearest_neighbors[i],Tree,map,x_size,y_size,numofDOFs);
+            for(int i=0;i<k_nearest_neighbors.size();i++)
+                rewire_RRT_star(k_nearest_neighbors[i],sample_count,Tree,map,x_size,y_size,numofDOFs);
+
+            if(is_new_sample_in_goal_region(Tree[sample_count].c,goal_config,GOAL_REGION_THRESHOLD))
+            {
+                cout<<"Connection to goal region made"<<endl;
+                auto distance_bw_configs = goal_config.get_distance(Tree[sample_count].c);
+                Tree[sample_count+1] = RRT_Star_Node(goal_config,sample_count,Tree[sample_count].gcost + std::move(distance_bw_configs));  //Adding goal configuration to my tree
+                is_goal_reached = true;
+                sample_count++;     //Adding this for goal. So that backtrack starts at goal.
+                break;
+            }
+        }
+
+        sample_count++;
+    }
+
+     if(Tree[sample_count].c == goal_config)
+         cout<<"Goal has been correctly reached"<<endl;
+
+     if(is_goal_reached)
+     {
+         auto path_vector = get_path_vector(Tree,sample_count,numofDOFs,start_config);
+         reverse(path_vector.begin(), path_vector.end());
+         return change_path_vector_to_path(plan,path_vector,numofDOFs);
+     }
+
+     cout<<"Could not reach goal. Sample more points"<<endl;
+     return -1;
+}
+
 //======================================================================================================================
 
 static void planner(
@@ -1178,9 +1243,9 @@ static void planner(
 	*plan = NULL;
 	*planlength = 0;
     int PRM_NUM_SAMPLES = 10;
-    int RRT_NUM_SAMPLES = 35000;
+    int RRT_NUM_SAMPLES = 60000;
     int RRT_CONNECT_NUM_SAMPLES = 10000;
-    int RRT_STAR_NUM_SAMPLES = 10;
+    int RRT_STAR_NUM_SAMPLES = 100000;
     //auto num_samples = PRM_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,PRM_NUM_SAMPLES);
     auto num_samples = RRT_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
     //auto num_samples = RRT_connect(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
