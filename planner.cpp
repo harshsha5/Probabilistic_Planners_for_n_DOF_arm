@@ -700,6 +700,7 @@ int PRM_planner(double*	map,
               if(plan_length && got_connected)
               {
 //                  cout<<"Plan_Length: "<<plan_length<<endl;
+                cout<<"num_samples_PRM "<<num_samples_PRM<<endl;
                   return plan_length;
               }
 
@@ -970,7 +971,7 @@ int RRT_planner(double*	map,
     const int NEAREST_NEIGHBORS_TO_CONSIDER = 1;
     double GOAL_BIAS = 0.01;
     const int &DISCRETIZATION_FACTOR = 10;  //Interpolation for collision checker
-    const double GOAL_REGION_THRESHOLD = PI/36;
+    const double GOAL_REGION_THRESHOLD = PI/18;
 
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -1036,6 +1037,7 @@ int RRT_planner(double*	map,
     {
         auto path_vector = get_path_vector(Tree,sample_count,numofDOFs,start_config);
         reverse(path_vector.begin(), path_vector.end());
+        cout<<"Sample_Count is "<<sample_count<<endl;
         return change_path_vector_to_path(plan,path_vector,numofDOFs);
     }
 
@@ -1128,6 +1130,7 @@ int RRT_connect(double*	map,
         {
             path_vector_A.push_back(elt);
         }
+        cout<<"Sample_Count is "<<sample_count<<endl;
         return change_path_vector_to_path(plan,path_vector_A,numofDOFs);
     }
 
@@ -1151,7 +1154,7 @@ int RRT_star(double*	map,
     const int NEAREST_NEIGHBORS_FOR_REWIRING = 3;
     double GOAL_BIAS = 0.01;
     const int &DISCRETIZATION_FACTOR = 10;  //Interpolation for collision checker
-    const double GOAL_REGION_THRESHOLD = PI/36;
+    const double GOAL_REGION_THRESHOLD = PI/18;
 
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -1223,6 +1226,7 @@ int RRT_star(double*	map,
      {
          auto path_vector = get_path_vector(Tree,sample_count,numofDOFs,start_config);
          reverse(path_vector.begin(), path_vector.end());
+         cout<<"Sample_Count is "<<sample_count<<endl;
          return change_path_vector_to_path(plan,path_vector,numofDOFs);
      }
 
@@ -1247,44 +1251,43 @@ double get_path_quality(double ***plan,
             dist+= std::min(pow((first_angle-second_angle),2),pow((first_angle-(second_angle-2*PI)),2));
         }
     }
-    cout<<"Distance is "<<dist<<endl;
+//    cout<<"Distance is "<<dist<<endl;
     return std::move(pow(dist,0.5));
 }
 
 //======================================================================================================================
 
-static void planner(
-		   double*	map,
-		   int x_size,
- 		   int y_size,
-           double* armstart_anglesV_rad,
-           double* armgoal_anglesV_rad,
-	   int numofDOFs,
-	   double*** plan,
-	   int* planlength)
-{
-	//no plan by default
-	*plan = NULL;
-	*planlength = 0;
-    int PRM_NUM_SAMPLES = 10;
-    int RRT_NUM_SAMPLES = 60000;
-    int RRT_CONNECT_NUM_SAMPLES = 10000;
-    int RRT_STAR_NUM_SAMPLES = 100000;
-    auto start = std::chrono::high_resolution_clock::now();
-    auto num_samples = PRM_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,PRM_NUM_SAMPLES);
-    //auto num_samples = RRT_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
-    //auto num_samples = RRT_connect(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
-    //auto num_samples = RRT_star(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_STAR_NUM_SAMPLES);
-    //num_samples = interpolation_based_plan(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan);
-    auto stop = std::chrono::high_resolution_clock::now();
-    auto time_taken_to_plan = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start);
-    cout<<"Planning time: "<<time_taken_to_plan.count()<<endl;
-    cout<<num_samples<<endl;
-    auto path_quality = get_path_quality(plan,numofDOFs,num_samples);
-    cout<<"Path Quality: "<<path_quality<<endl;
-    *planlength = num_samples;
-    return;
-}
+//static void planner(
+//		   double*	map,
+//		   int x_size,
+// 		   int y_size,
+//           double* armstart_anglesV_rad,
+//           double* armgoal_anglesV_rad,
+//	   int numofDOFs,
+//	   double*** plan,
+//	   int* planlength)
+//{
+//	//no plan by default
+//	*plan = NULL;
+//	*planlength = 0;
+//    int PRM_NUM_SAMPLES = 10;
+//    int RRT_NUM_SAMPLES = 40000;
+//    int RRT_CONNECT_NUM_SAMPLES = 10000;
+//    int RRT_STAR_NUM_SAMPLES = 150000;
+//    auto start = std::chrono::high_resolution_clock::now();
+//    //auto num_samples = PRM_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,PRM_NUM_SAMPLES);
+////    auto num_samples = RRT_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
+//    //auto num_samples = RRT_connect(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
+//    //auto num_samples = RRT_star(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_STAR_NUM_SAMPLES);
+//    //num_samples = interpolation_based_plan(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan);
+//    auto stop = std::chrono::high_resolution_clock::now();
+//    auto time_taken_to_plan = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start);
+//    cout<<"Planning time: "<<time_taken_to_plan.count()<<endl;
+//    auto path_quality = get_path_quality(plan,numofDOFs,num_samples);
+//    cout<<"Path Quality: "<<path_quality<<endl;
+//    *planlength = num_samples;
+//    return;
+//}
 
 //======================================================================================================================
 
@@ -1337,16 +1340,47 @@ void mexFunction( int nlhs, mxArray *plhs[],
     
     //call the planner
     double** plan = NULL;
-    int planlength = 0;
-    
+    int planlength;
+    int num_samples;
+
+    auto start = std::chrono::high_resolution_clock::now();
     //you can may be call the corresponding planner function here
-    //if (planner_id == RRT)
-    //{
-    //    plannerRRT(map,x_size,y_size, armstart_anglesV_rad, armgoal_anglesV_rad, numofDOFs, &plan, &planlength);
-    //}
+    if (planner_id == RRT)
+    {
+        cout<<"EXECUTING RRT"<<endl;
+        int RRT_NUM_SAMPLES = 40000;
+        num_samples = RRT_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,&plan,RRT_NUM_SAMPLES);
+
+    }
+    else if(planner_id == RRTCONNECT)
+    {
+        cout<<"EXECUTING RRT CONNECT"<<endl;
+        int RRT_CONNECT_NUM_SAMPLES = 10000;
+        num_samples = RRT_connect(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,&plan,RRT_CONNECT_NUM_SAMPLES);
+    }
+    else if(planner_id == RRTSTAR)
+    {
+        cout<<"EXECUTING RRT*"<<endl;
+        int RRT_STAR_NUM_SAMPLES = 150000;
+        num_samples = RRT_star(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,&plan,RRT_STAR_NUM_SAMPLES);
+    }
+    else if(planner_id == PRM)
+    {
+        cout<<"EXECUTING PRM"<<endl;
+        int PRM_NUM_SAMPLES = 10;
+        num_samples = PRM_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,&plan,PRM_NUM_SAMPLES);
+
+    }
+
+    auto stop = std::chrono::high_resolution_clock::now();
+    auto time_taken_to_plan = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start);
+    cout<<"Planning time: "<<time_taken_to_plan.count()<<endl;
+    auto path_quality = get_path_quality(&plan,numofDOFs,num_samples);
+    cout<<"Path Quality: "<<path_quality<<endl;
+    planlength = num_samples;
     
     //dummy planner which only computes interpolated path
-    planner(map,x_size,y_size, armstart_anglesV_rad, armgoal_anglesV_rad, numofDOFs, &plan, &planlength); 
+    //planner(map,x_size,y_size, armstart_anglesV_rad, armgoal_anglesV_rad, numofDOFs, &plan, &planlength);
     
     printf("planner returned plan of length=%d\n", planlength); 
     
