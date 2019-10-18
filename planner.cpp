@@ -668,6 +668,44 @@ int search_road_map(unordered_map<int,Node> road_map,
 
 //======================================================================================================================
 
+int base_cases(double*	map,
+               const int &x_size,
+               const int &y_size,
+               double* armstart_anglesV_rad,
+               double* armgoal_anglesV_rad,
+               const int &numofDOFs,
+               double*** plan,
+               const configuration &start_config,
+               const configuration &goal_config)
+
+{
+    if(!IsValidArmConfiguration(armgoal_anglesV_rad, numofDOFs, map, x_size, y_size))
+    {
+        cout<<"Goal Position is invalid "<<endl;
+        return 0;
+    }
+
+    if(!IsValidArmConfiguration(armstart_anglesV_rad, numofDOFs, map, x_size, y_size))
+    {
+        cout<<"Start Position is invalid "<<endl;
+        return 0;
+    }
+
+    if(start_config==goal_config)
+    {
+        *plan = (double**) malloc(2*sizeof(double*));
+        (*plan)[0] = (double *) malloc(numofDOFs * sizeof(double));
+        (*plan)[0] = armstart_anglesV_rad;
+        (*plan)[1] = (double *) malloc(numofDOFs * sizeof(double));
+        (*plan)[1] = armgoal_anglesV_rad;
+        return 2;
+    }
+
+    return -1;
+}
+
+//======================================================================================================================
+
 int PRM_planner(double*	map,
         const int &x_size,
         const int &y_size,
@@ -687,6 +725,11 @@ int PRM_planner(double*	map,
 
   const configuration start_config(numofDOFs,armstart_anglesV_rad);
   const configuration goal_config(numofDOFs,armgoal_anglesV_rad);
+
+  auto base_case_result = base_cases(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,start_config,goal_config);
+    if(base_case_result!=-1)
+        return base_case_result;
+
   int iteration_number = 1;
   while(true)
           {
@@ -848,7 +891,6 @@ int change_path_vector_to_path(double***plan,
                           const vector<configuration> &path_vector,
                           const int &numofDOFs)
 {
-    cout<<"Vector size is" <<path_vector.size()<<endl;
     *plan = (double**) malloc(path_vector.size()*sizeof(double*));
     for (int i = 0; i < path_vector.size(); i++) {
         (*plan)[i] = (double *) malloc(numofDOFs * sizeof(double));
@@ -877,44 +919,6 @@ vector<configuration> get_path_vector(
     vec.emplace_back(present_node.c);
     cout<<"Path vector formed"<<endl;
     return std::move(vec);
-}
-
-//======================================================================================================================
-
-int base_cases_RRT_family(double*	map,
-                          const int &x_size,
-                          const int &y_size,
-                          double* armstart_anglesV_rad,
-                          double* armgoal_anglesV_rad,
-                          const int &numofDOFs,
-                          double*** plan,
-                          const configuration &start_config,
-                          const configuration &goal_config)
-
-{
-    if(!IsValidArmConfiguration(armgoal_anglesV_rad, numofDOFs, map, x_size, y_size))
-    {
-        cout<<"Goal Position is invalid "<<endl;
-        return 0;
-    }
-
-    if(!IsValidArmConfiguration(armstart_anglesV_rad, numofDOFs, map, x_size, y_size))
-    {
-        cout<<"Start Position is invalid "<<endl;
-        return 0;
-    }
-
-    if(start_config==goal_config)
-    {
-        *plan = (double**) malloc(2*sizeof(double*));
-        (*plan)[0] = (double *) malloc(numofDOFs * sizeof(double));
-        (*plan)[0] = armstart_anglesV_rad;
-        (*plan)[1] = (double *) malloc(numofDOFs * sizeof(double));
-        (*plan)[1] = armgoal_anglesV_rad;
-        return 2;
-    }
-
-    return -1;
 }
 
 //======================================================================================================================
@@ -971,7 +975,7 @@ int RRT_planner(double*	map,
     const int NEAREST_NEIGHBORS_TO_CONSIDER = 1;
     double GOAL_BIAS = 0.01;
     const int &DISCRETIZATION_FACTOR = 10;  //Interpolation for collision checker
-    const double GOAL_REGION_THRESHOLD = PI/18;
+    const double GOAL_REGION_THRESHOLD = PI/20;
 
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -980,7 +984,7 @@ int RRT_planner(double*	map,
     const configuration start_config(numofDOFs,armstart_anglesV_rad);
     const configuration goal_config(numofDOFs,armgoal_anglesV_rad);
 
-    auto base_case_result = base_cases_RRT_family(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,start_config,goal_config);
+    auto base_case_result = base_cases(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,start_config,goal_config);
     if(base_case_result!=-1)
         return base_case_result;
 
@@ -1064,7 +1068,7 @@ int RRT_connect(double*	map,
     const configuration start_config(numofDOFs,armstart_anglesV_rad);
     const configuration goal_config(numofDOFs,armgoal_anglesV_rad);
 
-    auto base_case_result = base_cases_RRT_family(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,start_config,goal_config);
+    auto base_case_result = base_cases(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,start_config,goal_config);
     if(base_case_result!=-1)
         return base_case_result;
 
@@ -1154,7 +1158,7 @@ int RRT_star(double*	map,
     const int NEAREST_NEIGHBORS_FOR_REWIRING = 3;
     double GOAL_BIAS = 0.01;
     const int &DISCRETIZATION_FACTOR = 10;  //Interpolation for collision checker
-    const double GOAL_REGION_THRESHOLD = PI/18;
+    const double GOAL_REGION_THRESHOLD = PI/20;
 
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -1163,7 +1167,7 @@ int RRT_star(double*	map,
     const configuration start_config(numofDOFs, armstart_anglesV_rad);
     const configuration goal_config(numofDOFs, armgoal_anglesV_rad);
 
-    auto base_case_result = base_cases_RRT_family(map, x_size, y_size, armstart_anglesV_rad, armgoal_anglesV_rad,
+    auto base_case_result = base_cases(map, x_size, y_size, armstart_anglesV_rad, armgoal_anglesV_rad,
                                                   numofDOFs, plan, start_config, goal_config);
     if (base_case_result != -1)
         return base_case_result;
@@ -1241,7 +1245,6 @@ double get_path_quality(double ***plan,
                         int path_length)
 {
     double dist = 0;
-    cout<<"In Loop Path_length is "<<path_length<<endl;
     for(int i=0;i<path_length-1;i++)
     {
         for(int j=0;j<numofDOFs;j++)
@@ -1251,7 +1254,6 @@ double get_path_quality(double ***plan,
             dist+= std::min(pow((first_angle-second_angle),2),pow((first_angle-(second_angle-2*PI)),2));
         }
     }
-//    cout<<"Distance is "<<dist<<endl;
     return std::move(pow(dist,0.5));
 }
 
@@ -1348,14 +1350,14 @@ void mexFunction( int nlhs, mxArray *plhs[],
     if (planner_id == RRT)
     {
         cout<<"EXECUTING RRT"<<endl;
-        int RRT_NUM_SAMPLES = 40000;
+        int RRT_NUM_SAMPLES = 75000;
         num_samples = RRT_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,&plan,RRT_NUM_SAMPLES);
 
     }
     else if(planner_id == RRTCONNECT)
     {
         cout<<"EXECUTING RRT CONNECT"<<endl;
-        int RRT_CONNECT_NUM_SAMPLES = 10000;
+        int RRT_CONNECT_NUM_SAMPLES = 60000;
         num_samples = RRT_connect(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,&plan,RRT_CONNECT_NUM_SAMPLES);
     }
     else if(planner_id == RRTSTAR)
