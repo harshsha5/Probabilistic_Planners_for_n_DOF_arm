@@ -15,6 +15,7 @@
 #include <queue>
 #include <stack>
 #include <limits>
+#include <chrono>
 
 using namespace std;
 
@@ -706,6 +707,7 @@ int PRM_planner(double*	map,
               cout<<"New number of samples are: "<<num_samples_PRM<<endl;
               iteration_number++;
           }
+
 }
 
 //======================================================================================================================
@@ -1055,7 +1057,7 @@ int RRT_connect(double*	map,
     const double EPSILON = PI/25;
     const double CONNECT_EPSILON = INT_MAX;
     const int NEAREST_NEIGHBORS_TO_CONSIDER = 1;
-    const int &DISCRETIZATION_FACTOR = 20;  //Interpolation for collision checker
+    const int &DISCRETIZATION_FACTOR = 30;  //Interpolation for collision checker
 
     const configuration start_config(numofDOFs,armstart_anglesV_rad);
     const configuration goal_config(numofDOFs,armgoal_anglesV_rad);
@@ -1230,6 +1232,27 @@ int RRT_star(double*	map,
 
 //======================================================================================================================
 
+double get_path_quality(double ***plan,
+                        int numofDOFs,
+                        int path_length)
+{
+    double dist = 0;
+    cout<<"In Loop Path_length is "<<path_length<<endl;
+    for(int i=0;i<path_length-1;i++)
+    {
+        for(int j=0;j<numofDOFs;j++)
+        {
+            auto first_angle = (*plan)[i][j];
+            auto second_angle = (*plan)[i+1][j];
+            dist+= std::min(pow((first_angle-second_angle),2),pow((first_angle-(second_angle-2*PI)),2));
+        }
+    }
+    cout<<"Distance is "<<dist<<endl;
+    return std::move(pow(dist,0.5));
+}
+
+//======================================================================================================================
+
 static void planner(
 		   double*	map,
 		   int x_size,
@@ -1247,11 +1270,18 @@ static void planner(
     int RRT_NUM_SAMPLES = 60000;
     int RRT_CONNECT_NUM_SAMPLES = 10000;
     int RRT_STAR_NUM_SAMPLES = 100000;
-    //auto num_samples = PRM_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,PRM_NUM_SAMPLES);
+    auto start = std::chrono::high_resolution_clock::now();
+    auto num_samples = PRM_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,PRM_NUM_SAMPLES);
     //auto num_samples = RRT_planner(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
-    auto num_samples = RRT_connect(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
+    //auto num_samples = RRT_connect(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_NUM_SAMPLES);
     //auto num_samples = RRT_star(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan,RRT_STAR_NUM_SAMPLES);
     //num_samples = interpolation_based_plan(map,x_size,y_size,armstart_anglesV_rad,armgoal_anglesV_rad,numofDOFs,plan);
+    auto stop = std::chrono::high_resolution_clock::now();
+    auto time_taken_to_plan = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start);
+    cout<<"Planning time: "<<time_taken_to_plan.count()<<endl;
+    cout<<num_samples<<endl;
+    auto path_quality = get_path_quality(plan,numofDOFs,num_samples);
+    cout<<"Path Quality: "<<path_quality<<endl;
     *planlength = num_samples;
     return;
 }
